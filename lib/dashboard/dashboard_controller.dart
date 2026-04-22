@@ -136,21 +136,39 @@ class DashboardController {
 
   Future<void> _bootstrap() async {
     try {
-      final status = await SystemChannelService.getStatus();
+      final status = await SystemChannelService.getStatus().timeout(
+        const Duration(seconds: 2),
+      );
       _onSystemUpdate(status);
+    } catch (e) {
+      _onError('system_bootstrap:$e');
+    }
 
-      final settings = await PowerChannelService.getSettings();
+    try {
+      final settings = await PowerChannelService.getSettings().timeout(
+        const Duration(seconds: 2),
+      );
       _onPowerUpdate(settings);
+    } catch (e) {
+      _onError('power_bootstrap:$e');
+    }
 
-      final scan = await MeshChannelService.startScan();
+    _emit(_state.copyWith(loading: false));
+
+    // Start scan in background so UI is not blocked by native startup latency.
+    unawaited(_startScanInBackground());
+  }
+
+  Future<void> _startScanInBackground() async {
+    try {
+      final scan = await MeshChannelService.startScan().timeout(
+        const Duration(seconds: 3),
+      );
       if (scan['ok'] != true) {
         _onError('Unable to start mesh scan');
       }
-
-      _emit(_state.copyWith(loading: false));
     } catch (e) {
-      _onError(e);
-      _emit(_state.copyWith(loading: false));
+      _onError('mesh_scan_startup:$e');
     }
   }
 

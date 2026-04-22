@@ -13,7 +13,6 @@ class MainActivity : FlutterActivity() {
 			messenger = flutterEngine.dartExecutor.binaryMessenger,
 			activity = this
 		)
-		channelCoordinator?.requestMeshRuntimePermissionsIfNeeded()
 	}
 
 	override fun onRequestPermissionsResult(

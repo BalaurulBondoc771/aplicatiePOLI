@@ -24,13 +24,21 @@ class SosController {
   StreamSubscription<LocationDto>? _locationSub;
 
   void init() {
-    _bootstrapLocation();
-    LocationChannelService.observeLocationUpdates();
+    unawaited(_bootstrapLocation());
     _locationSub = LocationChannelService.locationUpdates.listen((location) {
       _applyLocation(location);
     }, onError: (Object error) {
       _emit(_state.copyWith(errorMessage: '$error'));
     });
+    unawaited(
+      LocationChannelService.observeLocationUpdates().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => <String, dynamic>{
+          'ok': false,
+          'error': 'observe_location_timeout',
+        },
+      ),
+    );
 
     _sosSub = SosChannelService.sosStateUpdates.listen((event) {
       if (event['event'] == 'sos_state' && event['state'] == 'idle' && !_state.isHolding) {
@@ -127,7 +135,9 @@ class SosController {
 
   Future<void> _bootstrapLocation() async {
     try {
-      final current = await LocationChannelService.getCurrentLocation();
+      final current = await LocationChannelService.getCurrentLocation().timeout(
+        const Duration(seconds: 3),
+      );
       _applyLocation(current);
       return;
     } catch (_) {
@@ -135,7 +145,9 @@ class SosController {
     }
 
     try {
-      final fallback = await LocationChannelService.getLastKnownLocation();
+      final fallback = await LocationChannelService.getLastKnownLocation().timeout(
+        const Duration(seconds: 3),
+      );
       _applyLocation(fallback);
       _emit(
         _state.copyWith(
