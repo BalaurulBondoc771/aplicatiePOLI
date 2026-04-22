@@ -287,15 +287,17 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
         ),
-        Text(
-          '${state.batteryPercent}% BAT',
-          style: TextStyle(
-            color: DashboardPage.amber,
-            fontSize: 21,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.4,
-            height: 1,
-          ),
+          Text(
+            '${state.batteryPercent}% BAT',
+            style: TextStyle(
+              color: DashboardPage.amber,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+              height: 1,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
         ),
       ],
     );
@@ -533,11 +535,13 @@ class _DashboardPageState extends State<DashboardPage> {
         label: const Text(
           'START OFFLINE CHAT',
           style: TextStyle(
-            fontSize: 33,
+            fontSize: 20,
             fontWeight: FontWeight.w800,
             letterSpacing: 0.2,
             height: 1,
           ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
@@ -564,10 +568,12 @@ class _DashboardPageState extends State<DashboardPage> {
                     style: TextStyle(
                       color: Color(0xFFE8EAEE),
                       fontWeight: FontWeight.w700,
-                      fontSize: 30,
+                      fontSize: 22,
                       letterSpacing: 0.4,
                       height: 1,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   SizedBox(height: 6),
                   Text(
@@ -575,10 +581,12 @@ class _DashboardPageState extends State<DashboardPage> {
                     style: TextStyle(
                       color: Color(0xFF9EA3AD),
                       fontWeight: FontWeight.w600,
-                      fontSize: 16,
+                      fontSize: 13,
                       letterSpacing: 1,
                       height: 1,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -698,11 +706,13 @@ class _DashboardPageState extends State<DashboardPage> {
         label: const Text(
           'ACTIVATE SOS BEACON',
           style: TextStyle(
-            fontSize: 36,
+            fontSize: 20,
             fontWeight: FontWeight.w800,
             letterSpacing: 1.1,
             height: 1,
           ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
@@ -778,22 +788,26 @@ class _DashboardPageState extends State<DashboardPage> {
                   name,
                   style: const TextStyle(
                     color: Color(0xFFF3F5F8),
-                    fontSize: 31,
+                    fontSize: 18,
                     letterSpacing: 0.2,
                     fontWeight: FontWeight.w800,
                     height: 1,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 5),
                 Text(
                   status,
                   style: TextStyle(
                     color: color,
-                    fontSize: 17,
+                    fontSize: 13,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.4,
                     height: 1,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -844,34 +858,40 @@ class _DashboardPageState extends State<DashboardPage> {
     return Container(
       height: 86,
       color: const Color(0xFF12141A),
-      padding: const EdgeInsets.fromLTRB(28, 10, 28, 10),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const _NavItem(icon: Icons.dashboard_outlined, label: 'DASHBOARD', active: true),
-          _NavItem(
-            icon: Icons.chat_outlined,
-            label: 'CHAT',
-            active: false,
-            onTap: () {
-              Navigator.of(context).pushReplacementNamed(AppRoutes.chat);
-            },
+          const Expanded(child: _NavItem(icon: Icons.dashboard_outlined, label: 'DASHBOARD', active: true)),
+          Expanded(
+            child: _NavItem(
+              icon: Icons.chat_outlined,
+              label: 'CHAT',
+              active: false,
+              onTap: () {
+                Navigator.of(context).pushReplacementNamed(AppRoutes.chat);
+              },
+            ),
           ),
-          _NavItem(
-            icon: Icons.flash_on_outlined,
-            label: 'POWER',
-            active: false,
-            onTap: () {
-              Navigator.of(context).pushReplacementNamed(AppRoutes.power);
-            },
+          Expanded(
+            child: _NavItem(
+              icon: Icons.flash_on_outlined,
+              label: 'POWER',
+              active: false,
+              onTap: () {
+                Navigator.of(context).pushReplacementNamed(AppRoutes.power);
+              },
+            ),
           ),
-          _NavItem(
-            icon: Icons.warning_amber_rounded,
-            label: 'SOS',
-            active: false,
-            onTap: () {
-              Navigator.of(context).pushReplacementNamed(AppRoutes.sos);
-            },
+          Expanded(
+            child: _NavItem(
+              icon: Icons.warning_amber_rounded,
+              label: 'SOS',
+              active: false,
+              onTap: () {
+                Navigator.of(context).pushReplacementNamed(AppRoutes.sos);
+              },
+            ),
           ),
         ],
       ),

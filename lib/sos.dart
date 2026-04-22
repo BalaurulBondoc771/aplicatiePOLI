@@ -57,7 +57,7 @@ class _SosPageState extends State<SosPage> {
             return Scaffold(
               backgroundColor: _bg,
               body: SafeArea(
-                bottom: false,
+                bottom: true,
                 child: Column(
                   children: [
                 if (!permissionState.canUseSosActions)
@@ -186,19 +186,23 @@ class _SosPageState extends State<SosPage> {
     return Container(
       height: 60,
       color: const Color(0xFF171A20),
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
           Icon(Icons.cell_tower, color: _amberStrong, size: 22),
           const SizedBox(width: 8),
-          const Text(
-            'BLACKOUTLINK',
-            style: TextStyle(
-              color: Color(0xFFF6B31B),
-              fontSize: 33,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-              height: 1,
+          const Expanded(
+            child: Text(
+              'BLACKOUTLINK',
+              style: TextStyle(
+                color: Color(0xFFF6B31B),
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+                height: 1,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           const Spacer(),
@@ -216,9 +220,11 @@ class _SosPageState extends State<SosPage> {
             style: const TextStyle(
               color: Color(0xFFB2B6BF),
               fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontSize: 11,
               letterSpacing: 1.2,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -256,33 +262,41 @@ class _SosPageState extends State<SosPage> {
                   '${state.latitude.toStringAsFixed(4)}°N',
                   style: const TextStyle(
                     color: Color(0xFFE9EBEF),
-                    fontSize: 58,
+                    fontSize: 42,
                     height: 0.95,
                     fontWeight: FontWeight.w800,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
                 Text(
                   '${state.longitude.abs().toStringAsFixed(4)}°W',
                   style: const TextStyle(
                     color: Color(0xFFE9EBEF),
-                    fontSize: 58,
+                    fontSize: 42,
                     height: 0.95,
                     fontWeight: FontWeight.w800,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 20),
                 Row(
                   children: [
                     const Icon(Icons.location_on, size: 16, color: Color(0xFF8D919A)),
                     const SizedBox(width: 8),
-                    Text(
-                      'UPDATED: ${_formatTimestamp(state.timestampMs)}  +/- ${state.accuracyMeters.toStringAsFixed(0)}M',
-                      style: const TextStyle(
-                        color: Color(0xFFA2A7B0),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1,
+                    Expanded(
+                      child: Text(
+                        'UPDATED: ${_formatTimestamp(state.timestampMs)}  +/- ${state.accuracyMeters.toStringAsFixed(0)}M',
+                        style: const TextStyle(
+                          color: Color(0xFFA2A7B0),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -321,7 +335,7 @@ class _SosPageState extends State<SosPage> {
       onPointerUp: (_) => _controller.endHold(),
       onPointerCancel: (_) => _controller.endHold(),
       child: Container(
-        height: 380,
+        constraints: const BoxConstraints(minHeight: 280),
         width: double.infinity,
         color: _amber,
         child: Stack(
@@ -356,7 +370,7 @@ class _SosPageState extends State<SosPage> {
                   'SOS',
                   style: TextStyle(
                     color: Colors.black,
-                    fontSize: 76,
+                    fontSize: 58,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.4,
                     height: 1,
@@ -369,10 +383,12 @@ class _SosPageState extends State<SosPage> {
                       : (state.isHolding ? 'HOLDING... ${(progress * 100).toInt()}%' : 'HOLD FOR 3 SECONDS'),
                   style: const TextStyle(
                     color: Colors.black,
-                    fontSize: 20,
+                    fontSize: 16,
                     letterSpacing: 3,
                     fontWeight: FontWeight.w700,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -496,20 +512,24 @@ class _SosPageState extends State<SosPage> {
                   style: const TextStyle(
                     color: Color(0xFFF0F2F6),
                     fontWeight: FontWeight.w700,
-                    fontSize: 26,
+                    fontSize: 18,
                     height: 1,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 5),
                 Text(
                   role,
                   style: const TextStyle(
                     color: Color(0xFF868B95),
-                    fontSize: 16,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.2,
                     height: 1,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -586,35 +606,41 @@ class _SosPageState extends State<SosPage> {
     return Container(
       height: 86,
       color: const Color(0xFF12141A),
-      padding: const EdgeInsets.fromLTRB(28, 10, 28, 10),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _NavItem(
-            icon: Icons.home_outlined,
-            label: 'DASHBOARD',
-            active: false,
-            onTap: () {
-              Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard);
-            },
+          Expanded(
+            child: _NavItem(
+              icon: Icons.home_outlined,
+              label: 'DASHBOARD',
+              active: false,
+              onTap: () {
+                Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard);
+              },
+            ),
           ),
-          _NavItem(
-            icon: Icons.chat_outlined,
-            label: 'CHAT',
-            active: false,
-            onTap: () {
-              Navigator.of(context).pushReplacementNamed(AppRoutes.chat);
-            },
+          Expanded(
+            child: _NavItem(
+              icon: Icons.chat_outlined,
+              label: 'CHAT',
+              active: false,
+              onTap: () {
+                Navigator.of(context).pushReplacementNamed(AppRoutes.chat);
+              },
+            ),
           ),
-          _NavItem(
-            icon: Icons.flash_on_outlined,
-            label: 'POWER',
-            active: false,
-            onTap: () {
-              Navigator.of(context).pushReplacementNamed(AppRoutes.power);
-            },
+          Expanded(
+            child: _NavItem(
+              icon: Icons.flash_on_outlined,
+              label: 'POWER',
+              active: false,
+              onTap: () {
+                Navigator.of(context).pushReplacementNamed(AppRoutes.power);
+              },
+            ),
           ),
-          const _NavItem(icon: Icons.warning_amber_rounded, label: 'SOS', active: true),
+          const Expanded(child: _NavItem(icon: Icons.warning_amber_rounded, label: 'SOS', active: true)),
         ],
       ),
     );
@@ -718,7 +744,7 @@ class _NavItem extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 70,
+        padding: const EdgeInsets.symmetric(vertical: 2),
         decoration: BoxDecoration(
           color: active ? const Color(0xFFF7B21A) : Colors.transparent,
           borderRadius: BorderRadius.circular(3),
@@ -736,10 +762,12 @@ class _NavItem extends StatelessWidget {
               label,
               style: TextStyle(
                 color: active ? Colors.black : const Color(0xFF737885),
-                fontSize: 13,
+                fontSize: 11,
                 letterSpacing: 0.5,
                 fontWeight: FontWeight.w800,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

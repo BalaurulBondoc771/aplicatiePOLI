@@ -43,7 +43,7 @@ class _PowerPageState extends State<PowerPage> {
         final body = Scaffold(
           backgroundColor: _bg,
           body: SafeArea(
-            bottom: false,
+            bottom: true,
             child: Column(
               children: [
                 _topBar(),
@@ -72,10 +72,12 @@ class _PowerPageState extends State<PowerPage> {
                                 '${state.runtimeHours.toString().padLeft(2, '0')}:${state.runtimeMinsRemainder.toString().padLeft(2, '0')}',
                                 style: const TextStyle(
                                   color: Color(0xFFDDE0E6),
-                                  fontSize: 76,
+                                  fontSize: 58,
                                   fontWeight: FontWeight.w900,
                                   height: 0.95,
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(width: 8),
                               const Padding(
@@ -178,11 +180,13 @@ class _PowerPageState extends State<PowerPage> {
                                             : 'ACTIVATE EMERGENCY\nSOS',
                                         textAlign: TextAlign.center,
                                         style: const TextStyle(
-                                          fontSize: 42,
+                                          fontSize: 24,
                                           fontWeight: FontWeight.w900,
                                           height: 1.1,
                                           letterSpacing: 0.8,
                                         ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                   ),
@@ -250,18 +254,22 @@ class _PowerPageState extends State<PowerPage> {
     return Container(
       height: 82,
       color: const Color(0xFF171A20),
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: const [
           Icon(Icons.navigation, color: _amber, size: 22),
           SizedBox(width: 8),
-          Text(
-            'BLACKOUT LINK',
-            style: TextStyle(
-              color: _amber,
-              fontSize: 45,
-              fontWeight: FontWeight.w900,
-              height: 1,
+          Expanded(
+            child: Text(
+              'BLACKOUT LINK',
+              style: TextStyle(
+                color: _amber,
+                fontSize: 30,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           Spacer(),
@@ -305,10 +313,12 @@ class _PowerPageState extends State<PowerPage> {
                             'KILL BACKGROUND\nAPPS',
                             style: TextStyle(
                               color: Color(0xFFDFE2E8),
-                              fontSize: 50,
+                              fontSize: 30,
                               fontWeight: FontWeight.w900,
                               height: 1.02,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           SizedBox(height: 10),
                           Text(
@@ -363,10 +373,12 @@ class _PowerPageState extends State<PowerPage> {
                     'GRAYSCALE DISPLAY',
                     style: TextStyle(
                       color: Color(0xFFDFE2E8),
-                      fontSize: 44,
+                      fontSize: 28,
                       fontWeight: FontWeight.w900,
                       height: 1,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 Icon(Icons.brightness_2, color: Color(0xFF707580), size: 30),
@@ -436,10 +448,12 @@ class _PowerPageState extends State<PowerPage> {
                     'LOW POWER\nBLUETOOTH',
                     style: TextStyle(
                       color: Color(0xFFDFE2E8),
-                      fontSize: 48,
+                      fontSize: 28,
                       fontWeight: FontWeight.w900,
                       height: 1.05,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -477,32 +491,40 @@ class _PowerPageState extends State<PowerPage> {
     return Container(
       height: 86,
       color: const Color(0xFF080A0E),
-      padding: const EdgeInsets.fromLTRB(28, 10, 28, 10),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _NavItem(
-            icon: Icons.dashboard_outlined,
-            label: 'DASHBOARD',
-            active: false,
-            onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard),
+          Expanded(
+            child: _NavItem(
+              icon: Icons.dashboard_outlined,
+              label: 'DASHBOARD',
+              active: false,
+              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard),
+            ),
           ),
-          _NavItem(
-            icon: Icons.chat_outlined,
-            label: 'CHAT',
-            active: false,
-            onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.chat),
+          Expanded(
+            child: _NavItem(
+              icon: Icons.chat_outlined,
+              label: 'CHAT',
+              active: false,
+              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.chat),
+            ),
           ),
-          const _NavItem(
-            icon: Icons.flash_on_outlined,
-            label: 'POWER',
-            active: true,
+          const Expanded(
+            child: _NavItem(
+              icon: Icons.flash_on_outlined,
+              label: 'POWER',
+              active: true,
+            ),
           ),
-          _NavItem(
-            icon: Icons.warning_amber_rounded,
-            label: 'SOS',
-            active: false,
-            onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.sos),
+          Expanded(
+            child: _NavItem(
+              icon: Icons.warning_amber_rounded,
+              label: 'SOS',
+              active: false,
+              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.sos),
+            ),
           ),
         ],
       ),
@@ -531,7 +553,7 @@ class _NavItem extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 70,
+        padding: const EdgeInsets.symmetric(vertical: 2),
         decoration: BoxDecoration(
           color: active ? _activeAmber : Colors.transparent,
           borderRadius: BorderRadius.circular(3),
@@ -549,10 +571,12 @@ class _NavItem extends StatelessWidget {
               label,
               style: TextStyle(
                 color: active ? Colors.black : const Color(0xFF737885),
-                fontSize: 13,
+                fontSize: 11,
                 letterSpacing: 0.5,
                 fontWeight: FontWeight.w800,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

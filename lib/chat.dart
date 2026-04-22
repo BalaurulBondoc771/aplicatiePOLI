@@ -72,7 +72,7 @@ class _ChatPageState extends State<ChatPage> {
 				return Scaffold(
 					backgroundColor: _bg,
 					body: SafeArea(
-						bottom: false,
+						bottom: true,
 						child: Column(
 							children: [
 								_topBar(viewState),
@@ -134,25 +134,29 @@ class _ChatPageState extends State<ChatPage> {
 													..._messageTimeline(viewState),
 													const SizedBox(height: 12),
 													Row(
-														mainAxisAlignment: MainAxisAlignment.center,
 														children: [
-															const Icon(Icons.settings_input_antenna, color: Color(0xFFF7B21A), size: 19),
-															const SizedBox(width: 8),
-															Text(
-																viewState.connectionState == 'connected' ? 'MESH RANGE: OPTIMAL' : 'MESH RANGE: DISCONNECTED',
-																style: const TextStyle(
-																	color: Color(0xFFF7B21A),
-																	fontSize: 28,
-																	fontWeight: FontWeight.w800,
-																	letterSpacing: 0.4,
-																	height: 1,
+															const Icon(Icons.settings_input_antenna, color: Color(0xFFF7B21A), size: 18),
+															const SizedBox(width: 6),
+															Expanded(
+																child: Text(
+																	viewState.connectionState == 'connected' ? 'MESH RANGE: OPTIMAL' : 'MESH RANGE: DISCONNECTED',
+																	textAlign: TextAlign.center,
+																	style: const TextStyle(
+																		color: Color(0xFFF7B21A),
+																		fontSize: 20,
+																		fontWeight: FontWeight.w800,
+																		letterSpacing: 0.3,
+																		height: 1,
+																	),
+																	maxLines: 1,
+																	overflow: TextOverflow.ellipsis,
 																),
 															),
-															const SizedBox(width: 8),
+															const SizedBox(width: 6),
 															Icon(
 																viewState.connectionState == 'connected' ? Icons.done_all : Icons.signal_cellular_connected_no_internet_4_bar,
 																color: const Color(0xFFF7B21A),
-																size: 20,
+																size: 18,
 															),
 														],
 													),
@@ -203,21 +207,25 @@ class _ChatPageState extends State<ChatPage> {
 	Widget _topBar(ChatState state) {
 		final String meshStatus = state.connectionState.toUpperCase();
 		return Container(
-			height: 94,
+			height: 78,
 			color: const Color(0xFF0F1218),
-			padding: const EdgeInsets.symmetric(horizontal: 18),
+			padding: const EdgeInsets.symmetric(horizontal: 12),
 			child: Row(
 				children: [
 					Icon(Icons.navigation, color: _amber, size: 20),
 					const SizedBox(width: 8),
-					const Text(
-						'BLACKOUT LINK',
-						style: TextStyle(
-							color: Color(0xFFF7B21A),
-							fontSize: 48,
-							fontWeight: FontWeight.w900,
-							letterSpacing: 0.1,
-							height: 1,
+					const Expanded(
+						child: Text(
+							'BLACKOUT LINK',
+							style: TextStyle(
+								color: Color(0xFFF7B21A),
+								fontSize: 28,
+								fontWeight: FontWeight.w900,
+								letterSpacing: 0.1,
+								height: 1,
+							),
+							maxLines: 1,
+							overflow: TextOverflow.ellipsis,
 						),
 					),
 					const Spacer(),
@@ -239,15 +247,17 @@ class _ChatPageState extends State<ChatPage> {
 								meshStatus,
 								style: TextStyle(
 									color: Color(0xFFF7B21A),
-									fontSize: 16,
+									fontSize: 13,
 									fontWeight: FontWeight.w800,
 									letterSpacing: 0.5,
 								),
+								maxLines: 1,
+								overflow: TextOverflow.ellipsis,
 							),
 						],
 					),
 					const SizedBox(width: 14),
-					const Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 36),
+					const Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 26),
 				],
 			),
 		);
@@ -260,7 +270,7 @@ class _ChatPageState extends State<ChatPage> {
 		final String sessionLabel = state.sessionState.toUpperCase();
 		return Container(
 			width: double.infinity,
-			height: 152,
+			constraints: const BoxConstraints(minHeight: 128),
 			color: _panel,
 			child: Row(
 				children: [
@@ -296,10 +306,12 @@ class _ChatPageState extends State<ChatPage> {
 													'BLUETOOTH MESH NODE\n$nodeLabel',
 													style: TextStyle(
 														color: Color(0xFFD8DBE2),
-														fontSize: 25,
+														fontSize: 17,
 														fontWeight: FontWeight.w800,
 														height: 1.2,
 													),
+													maxLines: 2,
+													overflow: TextOverflow.ellipsis,
 												),
 											],
 										),
@@ -322,7 +334,7 @@ class _ChatPageState extends State<ChatPage> {
 												latencyLabel,
 												style: TextStyle(
 													color: Color(0xFFF7B21A),
-													fontSize: 24,
+													fontSize: 18,
 													fontWeight: FontWeight.w800,
 													height: 1,
 												),
@@ -474,13 +486,18 @@ class _ChatPageState extends State<ChatPage> {
 			children: const [
 				Expanded(child: Divider(color: Color(0xFF343942), thickness: 1)),
 				SizedBox(width: 14),
-				Text(
-					'END OF ENCRYPTED SESSION',
-					style: TextStyle(
-						color: Color(0xFF5D626D),
-						fontSize: 13,
-						fontWeight: FontWeight.w800,
-						letterSpacing: 1.8,
+				Flexible(
+					child: Text(
+						'END OF ENCRYPTED SESSION',
+						textAlign: TextAlign.center,
+						style: TextStyle(
+							color: Color(0xFF5D626D),
+							fontSize: 12,
+							fontWeight: FontWeight.w800,
+							letterSpacing: 1.2,
+						),
+						maxLines: 1,
+						overflow: TextOverflow.ellipsis,
 					),
 				),
 				SizedBox(width: 14),
@@ -491,10 +508,11 @@ class _ChatPageState extends State<ChatPage> {
 
 	Widget _composer(ChatState state, PermissionsState permissions) {
 		return Container(
-			height: 168,
+			constraints: const BoxConstraints(minHeight: 126),
 			color: const Color(0xFF1A1D24),
-			padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+			padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
 			child: Column(
+				mainAxisSize: MainAxisSize.min,
 				children: [
 					if (_attachCoordsLabel != null)
 						Padding(
@@ -509,40 +527,58 @@ class _ChatPageState extends State<ChatPage> {
 										fontWeight: FontWeight.w700,
 										letterSpacing: 0.8,
 									),
+									maxLines: 2,
+									overflow: TextOverflow.ellipsis,
 								),
 							),
 						),
 					Row(
 						children: [
-							GestureDetector(
-								onTap: permissions.canUseLocationActions ? _attachCurrentCoords : _permissionsController.requestPermissions,
-								child: Row(
-									children: const [
-										Icon(Icons.place_outlined, color: Color(0xFFA3A8B2), size: 20),
-										SizedBox(width: 8),
-										Text(
-											'ATTACH\nCOORDS',
-											style: TextStyle(color: Color(0xFFA3A8B2), fontSize: 11, fontWeight: FontWeight.w700, height: 1.2, letterSpacing: 1.1),
+							Expanded(
+								child: Wrap(
+									spacing: 14,
+									runSpacing: 2,
+									crossAxisAlignment: WrapCrossAlignment.center,
+									children: [
+										GestureDetector(
+											onTap: permissions.canUseLocationActions ? _attachCurrentCoords : _permissionsController.requestPermissions,
+											child: const Row(
+												mainAxisSize: MainAxisSize.min,
+												children: [
+													Icon(Icons.place_outlined, color: Color(0xFFA3A8B2), size: 18),
+													SizedBox(width: 6),
+													Text(
+														'ATTACH\nCOORDS',
+														style: TextStyle(color: Color(0xFFA3A8B2), fontSize: 10, fontWeight: FontWeight.w700, height: 1.2, letterSpacing: 1),
+													),
+												],
+											),
+										),
+										const Row(
+											mainAxisSize: MainAxisSize.min,
+											children: [
+												Icon(Icons.mic_none, color: Color(0xFFA3A8B2), size: 18),
+												SizedBox(width: 6),
+												Text(
+													'VOICE\nBURST',
+													style: TextStyle(color: Color(0xFFA3A8B2), fontSize: 10, fontWeight: FontWeight.w700, height: 1.2, letterSpacing: 1),
+												),
+											],
 										),
 									],
 								),
 							),
-							const SizedBox(width: 20),
-							const Icon(Icons.mic_none, color: Color(0xFFA3A8B2), size: 20),
 							const SizedBox(width: 8),
-							const Text(
-								'VOICE\nBURST',
-								style: TextStyle(color: Color(0xFFA3A8B2), fontSize: 11, fontWeight: FontWeight.w700, height: 1.2, letterSpacing: 1.1),
-							),
-							const Spacer(),
 							Text(
 								'${240 - state.draft.length.clamp(0, 240)} CHRS\nREMAINING',
-								style: const TextStyle(color: Color(0xFF5E646F), fontSize: 11, fontWeight: FontWeight.w700, height: 1.2, letterSpacing: 1.1),
+								textAlign: TextAlign.right,
+								style: const TextStyle(color: Color(0xFF5E646F), fontSize: 10, fontWeight: FontWeight.w700, height: 1.2, letterSpacing: 1),
 							),
 						],
 					),
 					const SizedBox(height: 12),
-					Expanded(
+					SizedBox(
+						height: 56,
 						child: Row(
 							children: [
 								Expanded(
@@ -573,25 +609,30 @@ class _ChatPageState extends State<ChatPage> {
 										),
 									),
 								),
-								const SizedBox(width: 16),
-								GestureDetector(
+								const SizedBox(width: 8),
+								Flexible(
+									flex: 0,
+									child: GestureDetector(
 									onTap: state.sending
 										? null
 										: (permissions.canUseMeshActions ? _sendFromComposer : _permissionsController.requestPermissions),
 									child: Container(
-										width: 168,
+										constraints: const BoxConstraints(minWidth: 96, maxWidth: 132),
 										color: state.sending ? const Color(0xFF92733A) : _amber,
 										alignment: Alignment.center,
 										child: Text(
 											state.sending ? 'SENDING...' : 'SEND  >',
 											style: const TextStyle(
 												color: Colors.black,
-												fontSize: 24,
+												fontSize: 18,
 												fontWeight: FontWeight.w900,
 												letterSpacing: 1.1,
 											),
+											maxLines: 1,
+											overflow: TextOverflow.ellipsis,
 										),
 									),
+								),
 								),
 							],
 						),
@@ -655,28 +696,34 @@ class _ChatPageState extends State<ChatPage> {
 		return Container(
 			height: 86,
 			color: const Color(0xFF090B10),
-			padding: const EdgeInsets.fromLTRB(26, 10, 26, 10),
+			padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
 			child: Row(
 				mainAxisAlignment: MainAxisAlignment.spaceBetween,
 				children: [
-					_NavItem(
-						icon: Icons.grid_view,
-						label: 'DASHBOARD',
-						active: false,
-						onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard),
+					Expanded(
+						child: _NavItem(
+							icon: Icons.grid_view,
+							label: 'DASHBOARD',
+							active: false,
+							onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard),
+						),
 					),
-					const _NavItem(icon: Icons.chat, label: 'CHAT', active: true),
-					_NavItem(
-						icon: Icons.flash_on,
-						label: 'POWER',
-						active: false,
-						onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.power),
+					const Expanded(child: _NavItem(icon: Icons.chat, label: 'CHAT', active: true)),
+					Expanded(
+						child: _NavItem(
+							icon: Icons.flash_on,
+							label: 'POWER',
+							active: false,
+							onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.power),
+						),
 					),
-					_NavItem(
-						icon: Icons.warning,
-						label: 'SOS',
-						active: false,
-						onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.sos),
+					Expanded(
+						child: _NavItem(
+							icon: Icons.warning,
+							label: 'SOS',
+							active: false,
+							onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.sos),
+						),
 					),
 				],
 			),
@@ -703,7 +750,7 @@ class _NavItem extends StatelessWidget {
 			onTap: onTap,
 			behavior: HitTestBehavior.opaque,
 			child: Container(
-				width: 82,
+				padding: const EdgeInsets.symmetric(vertical: 2),
 				decoration: BoxDecoration(
 					color: active ? const Color(0xFFF7B21A) : Colors.transparent,
 					borderRadius: BorderRadius.circular(4),
@@ -721,6 +768,8 @@ class _NavItem extends StatelessWidget {
 								fontWeight: FontWeight.w800,
 								letterSpacing: 0.7,
 							),
+							maxLines: 1,
+							overflow: TextOverflow.ellipsis,
 						),
 					],
 				),
