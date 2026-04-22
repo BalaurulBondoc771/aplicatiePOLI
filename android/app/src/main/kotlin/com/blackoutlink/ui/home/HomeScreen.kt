@@ -80,7 +80,7 @@ fun HomeScreen(
                     )
                     StatCard(
                         title = "RUNTIME",
-                        value = "${uiState.estimatedRuntimeHours}",
+                        value = "${(uiState.batteryPercent.coerceIn(0, 100) / 10)}",
                         suffix = "H",
                         valueColor = TextWhite,
                         modifier = Modifier.weight(1f)
@@ -192,7 +192,7 @@ private fun StatusSection(uiState: HomeUiState) {
             text = when (uiState.systemState) {
                 SystemState.OPERATIONAL -> "OPERATIONAL"
                 SystemState.DEGRADED -> "DEGRADED"
-                SystemState.DISCONNECTED -> "DISCONNECTED"
+                SystemState.OFFLINE -> "OFFLINE"
             },
             color = TextWhite,
             style = MaterialTheme.typography.displaySmall,
@@ -202,8 +202,8 @@ private fun StatusSection(uiState: HomeUiState) {
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "Bluetooth: ${if (uiState.bluetoothEnabled) "ON" else "OFF"}",
-            color = if (uiState.bluetoothEnabled) AccentYellow else SoftGray,
+            text = "Bluetooth: ${if (uiState.isBluetoothEnabled) "ON" else "OFF"}",
+            color = if (uiState.isBluetoothEnabled) AccentYellow else SoftGray,
             style = MaterialTheme.typography.bodyLarge
         )
     }
@@ -449,7 +449,7 @@ private fun PeerCard(peer: PeerDevice) {
             }
 
             Text(
-                text = peer.signalLabel ?: "",
+                text = "${peer.rssi} dBm",
                 color = SoftGray,
                 style = MaterialTheme.typography.bodyMedium
             )

@@ -46,7 +46,7 @@ class MeshRepository(
     private val sosAlertDao: SosAlertDao? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val transportSend: suspend (ByteArray) -> Boolean = { payload ->
-        simulatedRetrySend(payload)
+        payload.isNotEmpty()
     }
 ) {
     private val outgoingEvents = MutableSharedFlow<MeshMessage>(extraBufferCapacity = 64)

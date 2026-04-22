@@ -15,6 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SosAlertRecipientCrossRef::class,
     ],
     version = 2,
+    exportSchema = false,
 )
 abstract class BlackoutDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao

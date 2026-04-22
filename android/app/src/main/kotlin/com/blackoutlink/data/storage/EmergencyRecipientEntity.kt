@@ -1,6 +1,7 @@
 package com.blackoutlink.data.storage
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "emergency_recipients")
@@ -13,7 +14,11 @@ data class EmergencyRecipientEntity(
     val lastUsedAt: Long?
 )
 
-@Entity(tableName = "sos_alert_recipients", primaryKeys = ["sosAlertId", "recipientId"])
+@Entity(
+    tableName = "sos_alert_recipients",
+    primaryKeys = ["sosAlertId", "recipientId"],
+    indices = [Index("recipientId")]
+)
 data class SosAlertRecipientCrossRef(
     val sosAlertId: String,
     val recipientId: String,

@@ -154,22 +154,6 @@ class DashboardController {
     }
 
     _emit(_state.copyWith(loading: false));
-
-    // Start scan in background so UI is not blocked by native startup latency.
-    unawaited(_startScanInBackground());
-  }
-
-  Future<void> _startScanInBackground() async {
-    try {
-      final scan = await MeshChannelService.startScan().timeout(
-        const Duration(seconds: 3),
-      );
-      if (scan['ok'] != true) {
-        _onError('Unable to start mesh scan');
-      }
-    } catch (e) {
-      _onError('mesh_scan_startup:$e');
-    }
   }
 
   void _onSystemUpdate(Map<String, dynamic> data) {

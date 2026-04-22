@@ -20,7 +20,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
       ),
-      initialRoute: AppRoutes.sos,
+      initialRoute: AppRoutes.dashboard,
       onGenerateRoute: (settings) {
         if (settings.name == AppRoutes.chat) {
           final args = AppRoutes.chatArgsOf(settings.arguments);

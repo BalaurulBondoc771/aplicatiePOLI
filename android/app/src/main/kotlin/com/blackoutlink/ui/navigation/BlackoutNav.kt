@@ -6,6 +6,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -14,6 +18,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.blackoutlink.ui.chat.ChatScreen
+import com.blackoutlink.ui.chat.ChatUiState
 import com.blackoutlink.ui.home.HomeScreen
 import com.blackoutlink.ui.power.PowerScreen
 import com.blackoutlink.ui.sos.SosScreen
@@ -75,10 +80,23 @@ fun BlackoutApp() {
                 )
             }
             composable(BlackoutDestination.Chat.route) {
-                ChatScreen()
+                var draft by remember { mutableStateOf("") }
+                ChatScreen(
+                    state = ChatUiState(messages = emptyList(), draftMessage = draft),
+                    onDraftChanged = { draft = it },
+                    onSend = { draft = "" }
+                )
             }
             composable(BlackoutDestination.Power.route) {
-                PowerScreen()
+                var batterySaverEnabled by remember { mutableStateOf(false) }
+                var scanIntervalMs by remember { mutableStateOf(1000L) }
+                PowerScreen(
+                    batterySaverEnabled = batterySaverEnabled,
+                    estimatedRuntimeHours = if (batterySaverEnabled) 16 else 9,
+                    scanIntervalMs = scanIntervalMs,
+                    onBatterySaverChanged = { batterySaverEnabled = it },
+                    onScanIntervalChanged = { scanIntervalMs = it }
+                )
             }
             composable(BlackoutDestination.Sos.route) {
                 SosScreen()

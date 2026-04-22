@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 class HomeViewModel(
     private val repository: MeshRepository,
@@ -64,6 +65,21 @@ class HomeViewModel(
     fun onRefreshScan() {
         repository.stopScan()
         repository.startScan()
+    }
+
+    fun onActivateSos() {
+        viewModelScope.launch {
+            // Keep payload minimal; coordinator/repository handles actual routing.
+            repository.sendSos(
+                senderId = "LOCAL_NODE",
+                payload = JSONObject(
+                    mapOf(
+                        "type" to "manual_sos",
+                        "timestamp" to System.currentTimeMillis()
+                    )
+                ).toString()
+            )
+        }
     }
 
     override fun onCleared() {
