@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../app_routes.dart';
+import '../../permissions/permissions_controller.dart';
+import '../../permissions/permissions_state.dart';
 import 'offline_map_controller.dart';
 import 'offline_map_state.dart';
+import 'offline_vector_map_view.dart';
 
 class OfflineMapScreen extends StatefulWidget {
   const OfflineMapScreen({super.key});
@@ -13,6 +16,7 @@ class OfflineMapScreen extends StatefulWidget {
 
 class _OfflineMapScreenState extends State<OfflineMapScreen> {
   final OfflineMapController _controller = OfflineMapController();
+  final PermissionsController _permissionsController = PermissionsController();
 
   static const Color _bg = Color(0xFF07090D);
   static const Color _panel = Color(0xFF171A20);
@@ -22,66 +26,114 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
   @override
   void initState() {
     super.initState();
+    _permissionsController.init();
     _controller.init();
   }
 
   @override
   void dispose() {
+    _permissionsController.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<OfflineMapState>(
-      stream: _controller.stateStream,
-      initialData: _controller.state,
-      builder: (context, snapshot) {
-        final OfflineMapState state = snapshot.data ?? _controller.state;
+    return StreamBuilder<PermissionsState>(
+      stream: _permissionsController.stateStream,
+      initialData: _permissionsController.state,
+      builder: (context, permissionSnapshot) {
+        final PermissionsState permissions = permissionSnapshot.data ?? _permissionsController.state;
+        return StreamBuilder<OfflineMapState>(
+          stream: _controller.stateStream,
+          initialData: _controller.state,
+          builder: (context, snapshot) {
+            final OfflineMapState state = snapshot.data ?? _controller.state;
 
-        return Scaffold(
-          backgroundColor: _bg,
-          body: SafeArea(
-            child: Column(
-              children: [
-                _header(context),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _packCard(state),
-                        const SizedBox(height: 14),
-                        _mapPreview(state),
-                        const SizedBox(height: 12),
-                        _locationCard(state),
-                        if (state.error != null) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            color: _danger,
-                            child: Text(
-                              state.error!,
-                              style: const TextStyle(
-                                color: Color(0xFFF5F6F8),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+            return Scaffold(
+              backgroundColor: _bg,
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    _header(context),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (!permissions.canUseLocationActions) ...[
+                              _permissionBanner(permissions),
+                              const SizedBox(height: 12),
+                            ],
+                            _packCard(state, permissions),
+                            const SizedBox(height: 14),
+                            _mapPreview(state),
+                            const SizedBox(height: 12),
+                            _locationCard(state),
+                            if (state.error != null) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                color: _danger,
+                                child: Text(
+                                  state.error!,
+                                  style: const TextStyle(
+                                    color: Color(0xFFF5F6F8),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ],
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    _bottomNav(context),
+                  ],
                 ),
-                _bottomNav(context),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _permissionBanner(PermissionsState permissions) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0x33EF242B),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              permissions.toBannerMessage(),
+              style: const TextStyle(
+                color: Color(0xFFF5F6F8),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: _permissionsController.requestPermissions,
+            child: const Text(
+              'RETRY',
+              style: TextStyle(
+                color: Color(0xFFF7B21A),
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -111,7 +163,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
     );
   }
 
-  Widget _packCard(OfflineMapState state) {
+  Widget _packCard(OfflineMapState state, PermissionsState permissions) {
     final String statusLabel;
     switch (state.status) {
       case MapPackStatus.notDownloaded:
@@ -192,7 +244,11 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
               if (state.status != MapPackStatus.unsupported)
                 _actionButton(
                   label: state.status == MapPackStatus.downloaded ? 'REDOWNLOAD' : 'DOWNLOAD',
-                  onTap: state.busy ? null : _controller.downloadRomaniaPack,
+                  onTap: state.busy
+                      ? null
+                      : () async {
+                          await _controller.downloadRomaniaPack();
+                        },
                 ),
               _actionButton(
                 label: 'REFRESH',
@@ -245,30 +301,12 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: CustomPaint(painter: _TacticalMapPainter()),
-          ),
-          if (state.latitude != null && state.longitude != null)
-            Align(
-              child: Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  color: const Color(0x44F7B21A),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Center(
-                  child: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: _amber,
-                      borderRadius: BorderRadius.circular(7),
-                      border: Border.all(color: Colors.black, width: 2),
-                    ),
-                  ),
-                ),
-              ),
+            child: OfflineVectorMapView(
+              latitude: state.latitude,
+              longitude: state.longitude,
+              minHeight: 220,
             ),
+          ),
           Positioned(
             left: 12,
             top: 12,
@@ -298,18 +336,18 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
 
     return Container(
       width: double.infinity,
-      color: _panel,
+      color: const Color(0xFF12151B),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'POSITION',
+            'CURRENT POSITION',
             style: TextStyle(
               color: Color(0xFF9CA0AA),
               fontSize: 11,
               fontWeight: FontWeight.w800,
-              letterSpacing: 1.1,
+              letterSpacing: 1,
             ),
           ),
           const SizedBox(height: 8),
@@ -323,16 +361,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'ACCURACY +/- ${state.accuracyMeters?.toStringAsFixed(0) ?? '-'}m | SOURCE ${state.locationSource ?? '-'}',
-            style: const TextStyle(
-              color: Color(0xFF9CA0AA),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'GPS ${state.gpsEnabled ? 'ON' : 'OFF'} | PERMISSION ${state.locationPermissionGranted ? 'OK' : 'DENIED'} | FALLBACK ${state.locationFallback ? 'YES' : 'NO'}',
+            'SOURCE: ${(state.locationSource ?? 'unknown').toUpperCase()} | ACC: +/- ${(state.accuracyMeters ?? 0).toStringAsFixed(0)}M',
             style: const TextStyle(
               color: Color(0xFF9CA0AA),
               fontSize: 11,
@@ -448,42 +477,4 @@ class _NavItem extends StatelessWidget {
       ),
     );
   }
-}
-
-class _TacticalMapPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint gridPaint = Paint()
-      ..color = const Color(0xFF293244).withValues(alpha: 0.25)
-      ..strokeWidth = 1;
-
-    for (double x = 0; x < size.width; x += 44) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (double y = 0; y < size.height; y += 34) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    final Paint pathPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = const Color(0xFF5B6577).withValues(alpha: 0.18);
-
-    final Path path1 = Path()
-      ..moveTo(0, size.height * 0.55)
-      ..cubicTo(size.width * 0.2, size.height * 0.35, size.width * 0.4, size.height * 0.82, size.width * 0.68, size.height * 0.45)
-      ..cubicTo(size.width * 0.8, size.height * 0.3, size.width * 0.9, size.height * 0.5, size.width, size.height * 0.25);
-    canvas.drawPath(path1, pathPaint);
-
-    final Paint fog = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0x66090D14), Color(0x22090D14), Color(0x88090D14)],
-      ).createShader(Offset.zero & size);
-    canvas.drawRect(Offset.zero & size, fog);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

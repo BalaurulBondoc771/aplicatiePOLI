@@ -20,6 +20,8 @@ class PowerController {
 
   StreamSubscription<Map<String, dynamic>>? _powerSub;
   Timer? _sosHoldTimer;
+  Timer? _runtimeRefreshTimer;
+  Timer? _runtimeCountdownTimer;
   int _sosHoldElapsedMs = 0;
 
   Future<void> init() async {
@@ -33,6 +35,19 @@ class PowerController {
     _emit(_state.copyWith(loading: true, clearError: true));
     await refresh();
     _emit(_state.copyWith(loading: false));
+
+    // Refresh runtime estimate every 30 seconds and animate countdown every second.
+    _runtimeRefreshTimer?.cancel();
+    _runtimeRefreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshRuntimeOnly(),
+    );
+
+    _runtimeCountdownTimer?.cancel();
+    _runtimeCountdownTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _tickRuntimeCountdown(),
+    );
   }
 
   Future<void> refresh() async {
@@ -41,9 +56,7 @@ class PowerController {
       _applyPowerSettings(settings);
 
       final runtime = await PowerChannelService.getRuntimeEstimate();
-      final minutes = (runtime['minutes'] as num?)?.toInt() ?? _state.runtimeMinutes;
-      final label = '${runtime['runtimeLabel'] ?? _formatRuntime(minutes)}';
-      _emit(_state.copyWith(runtimeMinutes: minutes, runtimeLabel: label, clearError: true));
+      _applyRuntimeEstimate(runtime);
     } catch (e) {
       _emit(_state.copyWith(error: '$e'));
     }
@@ -129,12 +142,40 @@ class PowerController {
   Future<void> _refreshRuntimeOnly() async {
     try {
       final runtime = await PowerChannelService.getRuntimeEstimate();
-      final minutes = (runtime['minutes'] as num?)?.toInt() ?? _state.runtimeMinutes;
-      final label = '${runtime['runtimeLabel'] ?? _formatRuntime(minutes)}';
-      _emit(_state.copyWith(runtimeMinutes: minutes, runtimeLabel: label, clearError: true));
+      _applyRuntimeEstimate(runtime);
     } catch (e) {
       _emit(_state.copyWith(error: '$e'));
     }
+  }
+
+  void _applyRuntimeEstimate(Map<String, dynamic> runtime) {
+    final int secondsFromNative = (runtime['seconds'] as num?)?.toInt() ?? -1;
+    final int minutesFromNative = (runtime['minutes'] as num?)?.toInt() ?? _state.runtimeMinutes;
+    final int resolvedSeconds =
+        secondsFromNative >= 0 ? secondsFromNative : (minutesFromNative * 60);
+    final String label = _formatRuntimeSeconds(resolvedSeconds);
+    _emit(
+      _state.copyWith(
+        runtimeMinutes: resolvedSeconds ~/ 60,
+        runtimeSeconds: resolvedSeconds,
+        runtimeLabel: label,
+        clearError: true,
+      ),
+    );
+  }
+
+  void _tickRuntimeCountdown() {
+    if (_state.runtimeSeconds <= 0) {
+      return;
+    }
+    final int nextSeconds = _state.runtimeSeconds - 1;
+    _emit(
+      _state.copyWith(
+        runtimeSeconds: nextSeconds,
+        runtimeMinutes: nextSeconds ~/ 60,
+        runtimeLabel: _formatRuntimeSeconds(nextSeconds),
+      ),
+    );
   }
 
   void _applyPowerSettings(Map<String, dynamic> map) {
@@ -153,14 +194,18 @@ class PowerController {
     );
   }
 
-  String _formatRuntime(int minutes) {
-    final h = (minutes ~/ 60).toString().padLeft(2, '0');
-    final m = (minutes % 60).toString().padLeft(2, '0');
-    return '$h:$m';
+  String _formatRuntimeSeconds(int seconds) {
+    final int safeSeconds = seconds < 0 ? 0 : seconds;
+    final h = (safeSeconds ~/ 3600).toString().padLeft(2, '0');
+    final m = ((safeSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+    final s = (safeSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
   }
 
   void dispose() {
     _sosHoldTimer?.cancel();
+    _runtimeRefreshTimer?.cancel();
+    _runtimeCountdownTimer?.cancel();
     _powerSub?.cancel();
     _stateController.close();
   }

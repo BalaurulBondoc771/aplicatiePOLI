@@ -1,7 +1,10 @@
 import 'offline_map_service.dart';
 
 class _UnsupportedOfflineMapService implements OfflineMapService {
-  static const String _url = 'https://example.com/maps/romania.mbtiles';
+  static const String _url = String.fromEnvironment(
+    'ROMANIA_MAP_URL',
+    defaultValue: 'https://example.com/maps/romania.mbtiles',
+  );
 
   @override
   String get romaniaMapUrl => _url;

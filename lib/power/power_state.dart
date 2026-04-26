@@ -8,6 +8,7 @@ class PowerState {
     required this.sosActive,
     required this.scanIntervalMs,
     required this.runtimeMinutes,
+    required this.runtimeSeconds,
     required this.runtimeLabel,
     required this.isSosHolding,
     required this.sosHoldProgress,
@@ -24,6 +25,7 @@ class PowerState {
   final bool sosActive;
   final int scanIntervalMs;
   final int runtimeMinutes;
+  final int runtimeSeconds;
   final String runtimeLabel;
   final bool isSosHolding;
   final double sosHoldProgress;
@@ -41,7 +43,8 @@ class PowerState {
       sosActive: false,
       scanIntervalMs: 1000,
       runtimeMinutes: 2535,
-      runtimeLabel: '42:15',
+      runtimeSeconds: 2535 * 60,
+      runtimeLabel: '42:15:00',
       isSosHolding: false,
       sosHoldProgress: 0,
       sendingSos: false,
@@ -50,8 +53,9 @@ class PowerState {
     );
   }
 
-  int get runtimeHours => runtimeMinutes ~/ 60;
-  int get runtimeMinsRemainder => runtimeMinutes % 60;
+  int get runtimeHours => runtimeSeconds ~/ 3600;
+  int get runtimeMinsRemainder => (runtimeSeconds % 3600) ~/ 60;
+  int get runtimeSecsRemainder => runtimeSeconds % 60;
 
   PowerState copyWith({
     bool? loading,
@@ -62,6 +66,7 @@ class PowerState {
     bool? sosActive,
     int? scanIntervalMs,
     int? runtimeMinutes,
+    int? runtimeSeconds,
     String? runtimeLabel,
     bool? isSosHolding,
     double? sosHoldProgress,
@@ -79,6 +84,7 @@ class PowerState {
       sosActive: sosActive ?? this.sosActive,
       scanIntervalMs: scanIntervalMs ?? this.scanIntervalMs,
       runtimeMinutes: runtimeMinutes ?? this.runtimeMinutes,
+      runtimeSeconds: runtimeSeconds ?? this.runtimeSeconds,
       runtimeLabel: runtimeLabel ?? this.runtimeLabel,
       isSosHolding: isSosHolding ?? this.isSosHolding,
       sosHoldProgress: sosHoldProgress ?? this.sosHoldProgress,

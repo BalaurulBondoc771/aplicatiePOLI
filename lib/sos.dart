@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import 'features/offline_map/offline_map_service.dart';
+import 'features/offline_map/offline_vector_map_view.dart';
 import 'permissions/permissions_controller.dart';
 import 'permissions/permissions_state.dart';
 import 'quick_status_models.dart';
@@ -141,7 +142,10 @@ class _SosPageState extends State<SosPage> {
                           ),
                           const SizedBox(height: 10),
                         ],
-                        _quickGrid(permissionState),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: _quickGrid(permissionState),
+                        ),
                         const SizedBox(height: 14),
                         _section('LAST KNOWN LOCATION'),
                         const SizedBox(height: 10),
@@ -243,28 +247,36 @@ class _SosPageState extends State<SosPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '${state.latitude.toStringAsFixed(4)}°N',
-                  style: const TextStyle(
-                    color: Color(0xFFE9EBEF),
-                    fontSize: 42,
-                    height: 0.95,
-                    fontWeight: FontWeight.w800,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${state.latitude.toStringAsFixed(4)}°N',
+                    style: const TextStyle(
+                      color: Color(0xFFE9EBEF),
+                      fontSize: 42,
+                      height: 0.95,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  '${state.longitude.abs().toStringAsFixed(4)}°W',
-                  style: const TextStyle(
-                    color: Color(0xFFE9EBEF),
-                    fontSize: 42,
-                    height: 0.95,
-                    fontWeight: FontWeight.w800,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${state.longitude.abs().toStringAsFixed(4)}°W',
+                    style: const TextStyle(
+                      color: Color(0xFFE9EBEF),
+                      fontSize: 42,
+                      height: 0.95,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 20),
                 Row(
@@ -312,97 +324,158 @@ class _SosPageState extends State<SosPage> {
   }
 
   Widget _sosHero(SosState state, PermissionsState permissions) {
-    final double progress = state.holdProgress.clamp(0.0, 1.0);
-
-    return Listener(
-      onPointerDown: (_) =>
-          permissions.canUseSosActions ? _controller.startHold() : _permissionsController.requestPermissions(),
-      onPointerUp: (_) => _controller.endHold(),
-      onPointerCancel: (_) => _controller.endHold(),
+    return GestureDetector(
+      onTap: _showSurvivalGuideDialog,
       child: Container(
         constraints: const BoxConstraints(minHeight: 280),
         width: double.infinity,
         color: _amber,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+            child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 110,
-                  height: 110,
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  transform: Matrix4.rotationZ(0.785398),
-                  alignment: Alignment.center,
-                  child: Transform.rotate(
-                    angle: -0.785398,
-                    child: const Text(
-                      '!',
+                const _SurvivalGuideBadge(),
+                const SizedBox(height: 14),
+                const SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'SURVIVAL GUIDE',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Color(0xFFF2C34D),
-                        fontSize: 68,
-                        height: 1,
+                        color: Colors.black,
+                        fontSize: 48,
                         fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                        height: 1,
+                      ),
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'TAP TO OPEN CHECKLIST',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 16,
+                        letterSpacing: 2.2,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 30),
-                const Text(
-                  'SOS',
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontSize: 58,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.4,
-                    height: 1,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  state.isSending
-                      ? 'SENDING ALERT...'
-                      : (state.isHolding ? 'HOLDING... ${(progress * 100).toInt()}%' : 'HOLD FOR 3 SECONDS'),
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 16,
-                    letterSpacing: 3,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
               ],
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                height: 8,
-                color: const Color(0x33000000),
-                alignment: Alignment.centerLeft,
-                child: FractionallySizedBox(
-                  widthFactor: progress,
-                  child: Container(color: Colors.black),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSurvivalGuideDialog() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: const Color(0xFF12141A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(right: 32),
+                      child: Text(
+                        'SURVIVAL GUIDE',
+                        style: TextStyle(
+                          color: Color(0xFFF7B21A),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Urmeaza pasii de mai jos in ordine:',
+                      style: TextStyle(
+                        color: Color(0xFFE7EAF0),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _guideStep('1. Muta-te intr-o zona sigura, ferita de trafic si structuri instabile.'),
+                    _guideStep('2. Verifica rapid daca tu sau cei din jur aveti rani grave.'),
+                    _guideStep('3. Economiseste bateria: redu luminozitatea si inchide aplicatiile inutile.'),
+                    _guideStep('4. Activeaza localizarea si Bluetooth pentru coordonare in mesh.'),
+                    _guideStep('5. Trimite status scurt (SAFE / NEED HELP) catre echipa sau familie.'),
+                    _guideStep('6. Pastreaza apa, trusa medicala si documentele esentiale la indemana.'),
+                    _guideStep('7. Urmeaza doar informatiile verificate si planul de evacuare local.'),
+                    const SizedBox(height: 8),
+                  ],
                 ),
               ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: IconButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  icon: const Icon(Icons.close, color: Color(0xFFAAB0BB), size: 22),
+                  tooltip: 'Inchide',
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _guideStep(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 3),
+            child: Icon(Icons.check_circle, color: Color(0xFFF7B21A), size: 14),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: Color(0xFFDDE1E8),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _section(String text) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Text(
         text,
         style: const TextStyle(
@@ -483,7 +556,13 @@ class _SosPageState extends State<SosPage> {
       ),
       child: Stack(
         children: [
-          Positioned.fill(child: CustomPaint(painter: _MapPainter())),
+          Positioned.fill(
+            child: OfflineVectorMapView(
+              latitude: state.latitude,
+              longitude: state.longitude,
+              minHeight: 185,
+            ),
+          ),
           Positioned(
             top: 12,
             right: 12,
@@ -663,6 +742,57 @@ class _SosPageState extends State<SosPage> {
   }
 }
 
+class _SurvivalGuideBadge extends StatelessWidget {
+  const _SurvivalGuideBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 124,
+      height: 124,
+      child: Center(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Transform.rotate(
+              angle: 0.785398,
+              child: Container(
+                width: 86,
+                height: 86,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+            const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(height: 4),
+                SizedBox(
+                  width: 8,
+                  height: 32,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: Color(0xFFF2C34D), borderRadius: BorderRadius.all(Radius.circular(4))),
+                  ),
+                ),
+                SizedBox(height: 7),
+                SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: Color(0xFFF2C34D), shape: BoxShape.circle),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _QuickCard extends StatelessWidget {
   const _QuickCard({
     required this.icon,
@@ -760,52 +890,5 @@ class _NavItem extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _MapPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = const Color(0xFF293244).withOpacity(0.25)
-      ..strokeWidth = 1;
-
-    for (double x = 0; x < size.width; x += 44) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (double y = 0; y < size.height; y += 34) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    final pathPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = const Color(0xFF5B6577).withOpacity(0.18);
-
-    final path1 = Path()
-      ..moveTo(0, size.height * 0.55)
-      ..cubicTo(size.width * 0.2, size.height * 0.35, size.width * 0.4, size.height * 0.82, size.width * 0.68, size.height * 0.45)
-      ..cubicTo(size.width * 0.8, size.height * 0.3, size.width * 0.9, size.height * 0.5, size.width, size.height * 0.25);
-    canvas.drawPath(path1, pathPaint);
-
-    final path2 = Path()
-      ..moveTo(size.width * 0.12, 0)
-      ..cubicTo(size.width * 0.3, size.height * 0.22, size.width * 0.17, size.height * 0.56, size.width * 0.35, size.height)
-      ..moveTo(size.width * 0.73, 0)
-      ..cubicTo(size.width * 0.76, size.height * 0.32, size.width * 0.84, size.height * 0.6, size.width * 0.86, size.height);
-    canvas.drawPath(path2, pathPaint);
-
-    final fog = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0x66090D14), Color(0x22090D14), Color(0x88090D14)],
-      ).createShader(Offset.zero & size);
-    canvas.drawRect(Offset.zero & size, fog);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return false;
   }
 }

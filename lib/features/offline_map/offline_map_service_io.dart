@@ -7,10 +7,14 @@ import 'offline_map_service.dart';
 class _IoOfflineMapService implements OfflineMapService {
   static const String _fileName = 'romania.mbtiles';
   static const String _folderName = 'maps';
-  static const String _url = 'https://example.com/maps/romania.mbtiles';
+  static const String _fallbackUrl = 'https://example.com/maps/romania.mbtiles';
+  static const String _configuredUrl = String.fromEnvironment(
+    'ROMANIA_MAP_URL',
+    defaultValue: _fallbackUrl,
+  );
 
   @override
-  String get romaniaMapUrl => _url;
+  String get romaniaMapUrl => _configuredUrl;
 
   Future<File> _packFile() async {
     final Directory docs = await getApplicationDocumentsDirectory();
@@ -42,6 +46,12 @@ class _IoOfflineMapService implements OfflineMapService {
 
   @override
   Future<MapPackInspection> downloadRomaniaPack({required void Function(double progress) onProgress}) async {
+    if (_configuredUrl.contains('example.com')) {
+      throw const FileSystemException(
+        'Map URL is not configured. Build with --dart-define=ROMANIA_MAP_URL=https://.../romania.mbtiles',
+      );
+    }
+
     final File file = await _packFile();
     final File temp = File('${file.path}.part');
     if (temp.existsSync()) {
@@ -50,7 +60,7 @@ class _IoOfflineMapService implements OfflineMapService {
 
     final HttpClient client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 15);
-    final HttpClientRequest request = await client.getUrl(Uri.parse(_url));
+    final HttpClientRequest request = await client.getUrl(Uri.parse(_configuredUrl));
     final HttpClientResponse response = await request.close();
 
     if (response.statusCode < 200 || response.statusCode >= 300) {

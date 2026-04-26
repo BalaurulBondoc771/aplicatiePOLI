@@ -68,26 +68,38 @@ class _PowerPageState extends State<PowerPage> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text(
-                                '${state.runtimeHours.toString().padLeft(2, '0')}:${state.runtimeMinsRemainder.toString().padLeft(2, '0')}',
-                                style: const TextStyle(
-                                  color: Color(0xFFDDE0E6),
-                                  fontSize: 58,
-                                  fontWeight: FontWeight.w900,
-                                  height: 0.95,
+                              Expanded(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.bottomLeft,
+                                  child: Text(
+                                    state.runtimeLabel,
+                                    style: const TextStyle(
+                                      color: Color(0xFFDDE0E6),
+                                      fontSize: 58,
+                                      fontWeight: FontWeight.w900,
+                                      height: 0.95,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(width: 8),
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 6),
-                                child: Text(
-                                  'HRS',
-                                  style: TextStyle(
-                                    color: Color(0xFF7A7F89),
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w800,
+                              const Flexible(
+                                child: Padding(
+                                  padding: EdgeInsets.only(bottom: 6),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.bottomRight,
+                                    child: Text(
+                                      'LEFT',
+                                      style: TextStyle(
+                                        color: Color(0xFF7A7F89),
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -109,15 +121,21 @@ class _PowerPageState extends State<PowerPage> {
                                     size: 24,
                                   ),
                                   const SizedBox(width: 12),
-                                  Text(
-                                    state.batterySaverEnabled
-                                        ? 'EXTREME SAVING ACTIVE'
-                                        : 'EXTREME SAVING OFF',
-                                    style: const TextStyle(
-                                      color: Color(0xFFDFE2E7),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.5,
+                                  Expanded(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        state.batterySaverEnabled
+                                            ? 'EXTREME SAVING ACTIVE'
+                                            : 'EXTREME SAVING OFF',
+                                        style: const TextStyle(
+                                          color: Color(0xFFDFE2E7),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -174,19 +192,21 @@ class _PowerPageState extends State<PowerPage> {
                                       ),
                                       onPressed: () {},
                                       icon: const Icon(Icons.emergency_outlined, size: 28),
-                                      label: Text(
-                                        state.sendingSos
-                                            ? 'SENDING EMERGENCY\nSOS'
-                                            : 'ACTIVATE EMERGENCY\nSOS',
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.w900,
-                                          height: 1.1,
-                                          letterSpacing: 0.8,
+                                      label: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          state.sendingSos
+                                              ? 'SENDING EMERGENCY\nSOS'
+                                              : 'ACTIVATE EMERGENCY\nSOS',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.w900,
+                                            height: 1.1,
+                                            letterSpacing: 0.8,
+                                          ),
+                                          maxLines: 2,
                                         ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                   ),
@@ -270,7 +290,7 @@ class _PowerPageState extends State<PowerPage> {
       onTap: _controller.killBackgroundApps,
       child: Container(
         width: double.infinity,
-        height: 202,
+        constraints: const BoxConstraints(minHeight: 202),
         color: _panelSoft,
         child: Row(
           children: [
@@ -281,11 +301,11 @@ class _PowerPageState extends State<PowerPage> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             'CRITICAL TASKS ONLY',
                             style: TextStyle(
                               color: _muted,
@@ -293,21 +313,26 @@ class _PowerPageState extends State<PowerPage> {
                               fontWeight: FontWeight.w800,
                               letterSpacing: 1.8,
                             ),
-                          ),
-                          SizedBox(height: 16),
-                          Text(
-                            'KILL BACKGROUND\nAPPS',
-                            style: TextStyle(
-                              color: Color(0xFFDFE2E8),
-                              fontSize: 30,
-                              fontWeight: FontWeight.w900,
-                              height: 1.02,
-                            ),
-                            maxLines: 2,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          SizedBox(height: 10),
-                          Text(
+                          const SizedBox(height: 16),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: const Text(
+                              'KILL BACKGROUND\nAPPS',
+                              style: TextStyle(
+                                color: Color(0xFFDFE2E8),
+                                fontSize: 30,
+                                fontWeight: FontWeight.w900,
+                                height: 1.02,
+                              ),
+                              maxLines: 2,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
                             'OPTIMIZES INTERNAL TASKS AND\nOPENS BATTERY SETTINGS WHEN\nAVAILABLE.',
                             style: TextStyle(
                               color: _muted,
@@ -322,7 +347,9 @@ class _PowerPageState extends State<PowerPage> {
                     Container(
                       width: 88,
                       height: 56,
-                      color: _amber,
+                      color: state.criticalTasksOnlyEnabled
+                          ? _amber
+                          : const Color(0xFF4A4D53),
                       padding: const EdgeInsets.all(6),
                       child: Align(
                         alignment: state.criticalTasksOnlyEnabled
@@ -371,35 +398,81 @@ class _PowerPageState extends State<PowerPage> {
               ],
             ),
             const Spacer(),
-            Row(
-              children: [
-                Text(
-                  state.grayscaleUiEnabled ? 'OLED OPTIMIZED - ON' : 'OLED OPTIMIZED - OFF',
-                  style: const TextStyle(
-                    color: _amber,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  width: 88,
-                  height: 56,
-                  color: const Color(0xFF4A4D53),
-                  padding: const EdgeInsets.all(6),
-                  child: Align(
-                    alignment: state.grayscaleUiEnabled
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      width: 40,
-                      height: 42,
-                      color: const Color(0xFF8B8B8B),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final bool compact = constraints.maxWidth < 360;
+                if (compact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        state.grayscaleUiEnabled ? 'OLED OPTIMIZED - ON' : 'OLED OPTIMIZED - OFF',
+                        style: const TextStyle(
+                          color: _amber,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          width: 88,
+                          height: 56,
+                          color: state.grayscaleUiEnabled ? _amber : const Color(0xFF4A4D53),
+                          padding: const EdgeInsets.all(6),
+                          child: Align(
+                            alignment: state.grayscaleUiEnabled
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              width: 40,
+                              height: 42,
+                              color: const Color(0xFF8B8B8B),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        state.grayscaleUiEnabled ? 'OLED OPTIMIZED - ON' : 'OLED OPTIMIZED - OFF',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _amber,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                    const SizedBox(width: 10),
+                    Container(
+                      width: 88,
+                      height: 56,
+                      color: state.grayscaleUiEnabled ? _amber : const Color(0xFF4A4D53),
+                      padding: const EdgeInsets.all(6),
+                      child: Align(
+                        alignment: state.grayscaleUiEnabled
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          width: 40,
+                          height: 42,
+                          color: const Color(0xFF8B8B8B),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -412,7 +485,7 @@ class _PowerPageState extends State<PowerPage> {
       onTap: () => _controller.setLowPowerBluetooth(!state.lowPowerBluetoothEnabled),
       child: Container(
         width: double.infinity,
-        height: 160,
+        constraints: const BoxConstraints(minHeight: 140),
         color: _panelSoft,
         padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
         child: Row(
@@ -430,16 +503,20 @@ class _PowerPageState extends State<PowerPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'LOW POWER\nBLUETOOTH',
-                    style: TextStyle(
-                      color: Color(0xFFDFE2E8),
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      height: 1.05,
+                  const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'LOW POWER\nBLUETOOTH',
+                      style: TextStyle(
+                        color: Color(0xFFDFE2E8),
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        height: 1.05,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -458,7 +535,9 @@ class _PowerPageState extends State<PowerPage> {
             Container(
               width: 88,
               height: 56,
-              color: _amber,
+              color: state.lowPowerBluetoothEnabled
+                  ? _amber
+                  : const Color(0xFF4A4D53),
               padding: const EdgeInsets.all(6),
               child: Align(
                 alignment: state.lowPowerBluetoothEnabled

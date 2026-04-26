@@ -4,9 +4,14 @@ import '../services/permissions_channel_service.dart';
 import 'permissions_state.dart';
 
 class PermissionsController {
-  PermissionsController({this.includeMicrophone = false});
+  PermissionsController({
+    this.includeMicrophone = false,
+    this.autoRequestOnInit = true,
+  });
 
   final bool includeMicrophone;
+  final bool autoRequestOnInit;
+  bool _autoRequestTriggered = false;
 
   final StreamController<PermissionsState> _stateController =
       StreamController<PermissionsState>.broadcast();
@@ -17,6 +22,14 @@ class PermissionsController {
 
   Future<void> init() async {
     await refresh();
+    if (
+      autoRequestOnInit &&
+      !_autoRequestTriggered &&
+      _shouldAutoRequestPermissions()
+    ) {
+      _autoRequestTriggered = true;
+      await requestPermissions();
+    }
   }
 
   Future<void> refresh() async {
@@ -65,6 +78,23 @@ class PermissionsController {
       requestInProgress: requestInProgress,
       clearError: true,
     );
+  }
+
+  bool _shouldAutoRequestPermissions() {
+    if (_state.permanentlyDeniedAny) {
+      return false;
+    }
+
+    final bool missingCore =
+        _state.bluetoothScan == 'denied' ||
+        _state.bluetoothConnect == 'denied' ||
+        _state.fineLocation == 'denied';
+
+    if (missingCore) {
+      return true;
+    }
+
+    return includeMicrophone && _state.microphone == 'denied';
   }
 
   void dispose() {

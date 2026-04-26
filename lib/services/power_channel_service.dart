@@ -125,13 +125,23 @@ class PowerChannelService {
 
   static Future<Map<String, dynamic>> getRuntimeEstimate() async {
     if (kIsWeb) {
-      return <String, dynamic>{'minutes': 2535, 'runtimeLabel': '42:15'};
+      return <String, dynamic>{
+        'minutes': 2535,
+        'seconds': 2535 * 60,
+        'runtimeLabel': '42:15:00',
+        'runtimeSource': 'battery_percent',
+      };
     }
     try {
       final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>('getRuntimeEstimate');
       return _toMap(result);
     } on MissingPluginException {
-      return <String, dynamic>{'minutes': 2535, 'runtimeLabel': '42:15'};
+      return <String, dynamic>{
+        'minutes': 2535,
+        'seconds': 2535 * 60,
+        'runtimeLabel': '42:15:00',
+        'runtimeSource': 'battery_percent',
+      };
     }
   }
 

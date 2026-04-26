@@ -130,6 +130,7 @@ class BroadcastResultDto {
     required this.sentCount,
     required this.deliveredCount,
     required this.failedCount,
+    required this.queuedForDelivery,
     this.error,
   });
 
@@ -137,6 +138,7 @@ class BroadcastResultDto {
   final int sentCount;
   final int deliveredCount;
   final int failedCount;
+  final bool queuedForDelivery;
   final String? error;
 
   factory BroadcastResultDto.fromMap(Map<String, dynamic> map) {
@@ -145,11 +147,15 @@ class BroadcastResultDto {
       sentCount: (map['sentCount'] as num?)?.toInt() ?? 0,
       deliveredCount: (map['deliveredCount'] as num?)?.toInt() ?? 0,
       failedCount: (map['failedCount'] as num?)?.toInt() ?? 0,
+      queuedForDelivery: map['queuedForDelivery'] == true,
       error: map['error'] != null ? '${map['error']}' : null,
     );
   }
 
   String toBannerText() {
+    if (queuedForDelivery) {
+      return 'No active peers now. Status was saved and will be delivered when a peer is discovered.';
+    }
     if (!ok && error != null) {
       return 'Broadcast failed: $error';
     }

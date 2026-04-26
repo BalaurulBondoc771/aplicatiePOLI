@@ -2,6 +2,7 @@ package com.example.blackoutapp.channels
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import java.util.UUID
 
@@ -70,6 +72,8 @@ class BlackoutChannelCoordinator(
         private const val APP_PERMISSIONS_REQUEST_CODE = 3403
         private const val PEER_STALE_MS = 15_000L
         private const val STALE_LOCATION_MS = 30_000L
+        private const val QUICK_STATUS_TTL_MS = 5 * 60 * 1000L
+        private const val FALLBACK_DISCHARGE_UA = 180_000.0
     }
 
     private var chatSink: EventChannel.EventSink? = null
@@ -979,14 +983,19 @@ class BlackoutChannelCoordinator(
 
             "getRuntimeEstimate" -> {
                 val estimateMinutes = computeRuntimeEstimateMinutes()
+                val estimateSeconds = computeRuntimeEstimateSeconds()
+                val battPct = readBatteryPercent()
                 result.success(
                     mapOf(
                         "ok" to true,
                         "method" to "getRuntimeEstimate",
                         "minutes" to estimateMinutes,
+                        "seconds" to estimateSeconds,
                         "hours" to (estimateMinutes / 60),
                         "minsRemainder" to (estimateMinutes % 60),
-                        "runtimeLabel" to formatRuntimeLabel(estimateMinutes),
+                        "runtimeLabel" to formatRuntimeLabel(estimateSeconds / 60),
+                        "batteryPercent" to (battPct ?: -1),
+                        "runtimeSource" to if (hasRealtimeDischargeTelemetry()) "realtime_current" else "battery_percent",
                         "criticalServicesProtected" to true
                     )
                 )
@@ -1027,13 +1036,61 @@ class BlackoutChannelCoordinator(
     }
 
     private fun computeRuntimeEstimateMinutes(): Int {
-        var estimate = 24 * 60
-        if (batterySaverEnabled) estimate += 8 * 60
-        if (lowPowerBluetoothEnabled) estimate += 10 * 60
-        if (grayscaleUiEnabled) estimate += 3 * 60
-        if (criticalTasksOnlyEnabled) estimate += 4 * 60
-        if (sosActive) estimate -= 6 * 60
-        return estimate.coerceIn(120, 72 * 60)
+        return (computeRuntimeEstimateSeconds() / 60).coerceAtLeast(0)
+    }
+
+    private fun computeRuntimeEstimateSeconds(): Int {
+        val realtime = readRuntimeFromBatteryTelemetrySeconds()
+        if (realtime != null) {
+            return realtime.coerceIn(0, 72 * 3600)
+        }
+
+        // Fallback estimate based on current battery percent and selected power profile.
+        var baseFullMinutes = 24 * 60
+        if (batterySaverEnabled) baseFullMinutes += 8 * 60
+        if (lowPowerBluetoothEnabled) baseFullMinutes += 10 * 60
+        if (grayscaleUiEnabled) baseFullMinutes += 3 * 60
+        if (criticalTasksOnlyEnabled) baseFullMinutes += 4 * 60
+        if (sosActive) baseFullMinutes -= 6 * 60
+        baseFullMinutes = baseFullMinutes.coerceIn(120, 72 * 60)
+
+        val pct = readBatteryPercent()
+        val estMinutes = if (pct != null && pct in 0..100) {
+            (baseFullMinutes * pct / 100.0).roundToInt().coerceAtLeast(0)
+        } else {
+            baseFullMinutes
+        }
+        return (estMinutes * 60).coerceIn(0, 72 * 3600)
+    }
+
+    private fun hasRealtimeDischargeTelemetry(): Boolean {
+        return readRuntimeFromBatteryTelemetrySeconds() != null
+    }
+
+    private fun readRuntimeFromBatteryTelemetrySeconds(): Int? {
+        return try {
+            val manager = activity.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                ?: return null
+            val chargeCounterUah = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+            val currentNowUa = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+
+            if (chargeCounterUah <= 0) {
+                return null
+            }
+
+            val dischargeCurrentUa = when {
+                currentNowUa < -1_000 -> abs(currentNowUa).toDouble()
+                currentNowUa > 1_000 -> currentNowUa.toDouble()
+                else -> FALLBACK_DISCHARGE_UA
+            }
+            if (dischargeCurrentUa <= 0.0) {
+                return null
+            }
+
+            ((chargeCounterUah / dischargeCurrentUa) * 3600.0).roundToInt()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun formatRuntimeLabel(minutes: Int): String {
@@ -1088,6 +1145,7 @@ class BlackoutChannelCoordinator(
                 meshRepository.peers.collect { peers ->
                     withContext(Dispatchers.IO) {
                         meshRepository.saveRecentPeers(peers)
+                        flushPendingQuickStatusIfPossible()
                     }
                     _meshState.update {
                         it.copy(
@@ -1372,34 +1430,39 @@ class BlackoutChannelCoordinator(
 
     private suspend fun processQuickStatusBroadcast(rawStatus: String): Map<String, Any?> =
         withContext(Dispatchers.IO) {
+            val normalizedStatus = rawStatus.substringBefore("|").uppercase()
+            val type = mapQuickStatusType(normalizedStatus)
+            val expiresAtMs = System.currentTimeMillis() + QUICK_STATUS_TTL_MS
+            val localDeviceName = Build.MODEL ?: "UNKNOWN_DEVICE"
+            val statusPayload = "STATUS:$normalizedStatus|DEVICE=$localDeviceName|EXP=$expiresAtMs"
+
             if (!bleScanner.isBluetoothEnabled()) {
+                settingsStore.setPendingQuickStatus(normalizedStatus, expiresAtMs)
                 return@withContext mapOf(
-                    "ok" to false,
+                    "ok" to true,
                     "method" to "broadcastQuickStatus",
                     "sentCount" to 0,
                     "deliveredCount" to 0,
                     "failedCount" to 0,
-                    "error" to "bluetooth_disabled"
+                    "queuedForDelivery" to true,
+                    "error" to null
                 )
             }
 
             val recipients = resolveBroadcastRecipients()
             if (recipients.isEmpty()) {
+                settingsStore.setPendingQuickStatus(normalizedStatus, expiresAtMs)
                 return@withContext mapOf(
-                    "ok" to false,
+                    "ok" to true,
                     "method" to "broadcastQuickStatus",
                     "sentCount" to 0,
                     "deliveredCount" to 0,
                     "failedCount" to 0,
-                    "error" to "zero_recipients"
+                    "queuedForDelivery" to true,
+                    "error" to null
                 )
             }
 
-            val normalizedStatus = rawStatus.substringBefore("|").uppercase()
-            val type = mapQuickStatusType(normalizedStatus)
-            val expiresAtMs = System.currentTimeMillis() + 5 * 60 * 1000
-            val localDeviceName = Build.MODEL ?: "UNKNOWN_DEVICE"
-            val statusPayload = "STATUS:$normalizedStatus|DEVICE=$localDeviceName|EXP=$expiresAtMs"
             val dao = database.messageDao()
             val conversationDao = database.conversationDao()
             var sentCount = 0
@@ -1462,15 +1525,105 @@ class BlackoutChannelCoordinator(
                 }
             }
 
+            if (failedCount == 0) {
+                settingsStore.clearPendingQuickStatus()
+            }
+
             mapOf(
                 "ok" to (failedCount == 0),
                 "method" to "broadcastQuickStatus",
                 "sentCount" to sentCount,
                 "deliveredCount" to deliveredCount,
                 "failedCount" to failedCount,
+                "queuedForDelivery" to false,
                 "error" to if (failedCount > 0) "partial_failure" else null
             )
         }
+
+    private suspend fun flushPendingQuickStatusIfPossible() {
+        val pendingStatus = settingsStore.getPendingQuickStatus()?.trim()?.uppercase()
+        val expiresAtMs = settingsStore.getPendingQuickStatusExpiresAtMs()
+        if (pendingStatus.isNullOrBlank()) {
+            settingsStore.clearPendingQuickStatus()
+            return
+        }
+        if (expiresAtMs <= System.currentTimeMillis()) {
+            settingsStore.clearPendingQuickStatus()
+            return
+        }
+        if (!bleScanner.isBluetoothEnabled()) {
+            return
+        }
+
+        val recipients = resolveBroadcastRecipients()
+        if (recipients.isEmpty()) {
+            return
+        }
+
+        val localDeviceName = Build.MODEL ?: "UNKNOWN_DEVICE"
+        val statusPayload = "STATUS:$pendingStatus|DEVICE=$localDeviceName|EXP=$expiresAtMs"
+        val type = mapQuickStatusType(pendingStatus)
+        val dao = database.messageDao()
+        val conversationDao = database.conversationDao()
+        var successfulSends = 0
+
+        for (peer in recipients) {
+            val messageId = UUID.randomUUID().toString()
+            val createdAt = System.currentTimeMillis()
+
+            dao.upsert(
+                MessageEntity(
+                    id = messageId,
+                    senderId = "LOCAL_USER",
+                    receiverId = peer.id,
+                    type = type.name,
+                    content = statusPayload,
+                    createdAt = createdAt,
+                    status = MessageDeliveryStatus.QUEUED.name,
+                    conversationId = peer.id
+                )
+            )
+            conversationDao.upsert(
+                com.blackoutlink.data.storage.ConversationEntity(
+                    id = peer.id,
+                    peerId = peer.id,
+                    title = peer.name,
+                    lastMessagePreview = statusPayload,
+                    updatedAt = createdAt,
+                    unreadCount = 0
+                )
+            )
+
+            val meshMessage = MeshMessage(
+                id = messageId,
+                senderId = "LOCAL_USER",
+                receiverId = peer.id,
+                type = type,
+                content = statusPayload,
+                createdAt = createdAt
+            )
+
+            val packet = MeshProtocol.encode(meshMessage)
+            val encrypted = cryptoManager.encrypt(packet)
+            val canSend = hasActiveTransport(peer.id)
+            if (!canSend) {
+                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+                continue
+            }
+
+            val sent = encrypted.cipherText.isNotEmpty()
+            if (sent) {
+                successfulSends++
+                dao.updateStatus(messageId, MessageDeliveryStatus.SENT.name)
+            } else {
+                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+            }
+        }
+
+        if (successfulSends > 0) {
+            settingsStore.clearPendingQuickStatus()
+        }
+    }
 
     private suspend fun processSendSos(): Map<String, Any?> = withContext(Dispatchers.IO) {
         if (!bleScanner.isBluetoothEnabled()) {

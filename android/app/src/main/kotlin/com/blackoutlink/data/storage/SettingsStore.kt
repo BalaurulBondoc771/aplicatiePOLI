@@ -55,6 +55,25 @@ class SettingsStore(context: Context) {
         prefs.edit().putInt(KEY_BATTERY_PERCENT_HINT, value.coerceIn(1, 100)).apply()
     }
 
+    fun setPendingQuickStatus(status: String, expiresAtMs: Long) {
+        prefs.edit()
+            .putString(KEY_PENDING_QUICK_STATUS, status)
+            .putLong(KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS, expiresAtMs)
+            .apply()
+    }
+
+    fun getPendingQuickStatus(): String? = prefs.getString(KEY_PENDING_QUICK_STATUS, null)
+
+    fun getPendingQuickStatusExpiresAtMs(): Long =
+        prefs.getLong(KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS, 0L)
+
+    fun clearPendingQuickStatus() {
+        prefs.edit()
+            .remove(KEY_PENDING_QUICK_STATUS)
+            .remove(KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS)
+            .apply()
+    }
+
     companion object {
         private const val KEY_BATTERY_SAVER = "battery_saver"
         private const val KEY_LOW_POWER_BLUETOOTH = "low_power_bluetooth"
@@ -62,5 +81,7 @@ class SettingsStore(context: Context) {
         private const val KEY_CRITICAL_TASKS_ONLY = "critical_tasks_only"
         private const val KEY_SCAN_INTERVAL_MS = "scan_interval_ms"
         private const val KEY_BATTERY_PERCENT_HINT = "battery_percent_hint"
+        private const val KEY_PENDING_QUICK_STATUS = "pending_quick_status"
+        private const val KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS = "pending_quick_status_expires_at_ms"
     }
 }

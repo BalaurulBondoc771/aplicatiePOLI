@@ -3,6 +3,7 @@ import 'app_routes.dart';
 import 'dashboard/dashboard_controller.dart';
 import 'dashboard/dashboard_models.dart';
 import 'features/offline_map/offline_map_service.dart';
+import 'features/offline_map/offline_vector_map_view.dart';
 import 'permissions/permissions_controller.dart';
 import 'permissions/permissions_state.dart';
 import 'quick_status_models.dart';
@@ -91,7 +92,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 14, 24, 20),
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -172,7 +173,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 14),
                           ..._peerList(state),
                           const SizedBox(height: 24),
-                          _sectionLabel('QUICK STATUS'),
+                          _sectionLabel('QUICK STATUS SHARE'),
                           const SizedBox(height: 14),
                           if (_quickStatusResult != null) ...[
                             Container(
@@ -192,57 +193,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             ),
                             const SizedBox(height: 10),
                           ],
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _quickStatusCard(
-                                  borderColor: _green,
-                                  icon: Icons.verified_user_outlined,
-                                  label: "I'M SAFE",
-                                  onTap: permissionState.canUseMeshActions
-                                      ? () => _sendQuickStatus(QuickStatusType.iAmSafe)
-                                      : null,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: _quickStatusCard(
-                                  borderColor: DashboardPage.amber,
-                                  icon: Icons.directions_walk,
-                                  label: 'ON MY WAY',
-                                  onTap: permissionState.canUseMeshActions
-                                      ? () => _sendQuickStatus(QuickStatusType.onMyWay)
-                                      : null,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _quickStatusCard(
-                                  borderColor: const Color(0xFF3288FF),
-                                  icon: Icons.water_drop_outlined,
-                                  label: 'NEED WATER',
-                                  onTap: permissionState.canUseMeshActions
-                                      ? () => _sendQuickStatus(QuickStatusType.needWater)
-                                      : null,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: _quickStatusCard(
-                                  borderColor: const Color(0xFFFF4C65),
-                                  icon: Icons.help_outline,
-                                  label: 'NEED HELP',
-                                  onTap: permissionState.canUseMeshActions
-                                      ? () => _sendQuickStatus(QuickStatusType.needHelp)
-                                      : null,
-                                ),
-                              ),
-                            ],
-                          ),
+                          _quickGrid(permissionState),
                         ],
                       ),
                     ),
@@ -295,14 +246,18 @@ class _DashboardPageState extends State<DashboardPage> {
         Icon(Icons.signal_cellular_alt, color: DashboardPage.amber, size: 24),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            'MISSION_STATUS',
-            style: TextStyle(
-              color: DashboardPage.amber,
-              fontSize: 31,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.3,
-              height: 1,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'MISSION_STATUS',
+              style: TextStyle(
+                color: DashboardPage.amber,
+                fontSize: 31,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+                height: 1,
+              ),
             ),
           ),
         ),
@@ -361,14 +316,23 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  healthLabel,
-                  style: TextStyle(
-                    color: _text,
-                    fontSize: 42,
-                    letterSpacing: -0.4,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        healthLabel,
+                        style: TextStyle(
+                          color: _text,
+                          fontSize: 42,
+                          letterSpacing: -0.4,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -378,7 +342,7 @@ class _DashboardPageState extends State<DashboardPage> {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: healthColor.withOpacity(0.22),
+              color: healthColor.withValues(alpha: 0.22),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
@@ -412,31 +376,39 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
           const SizedBox(height: 8),
-          RichText(
-            text: TextSpan(
-              children: [
-                TextSpan(
-                  text: '$battery',
-                  style: TextStyle(
-                    color: _text,
-                    fontSize: 52,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$battery',
+                        style: TextStyle(
+                          color: _text,
+                          fontSize: 52,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                      TextSpan(
+                        text: '%',
+                        style: TextStyle(
+                          color: DashboardPage.amber,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w800,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                TextSpan(
-                  text: '%',
-                  style: TextStyle(
-                    color: DashboardPage.amber,
-                    fontSize: 34,
-                    fontWeight: FontWeight.w800,
-                    height: 1.1,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-          const Spacer(),
           SizedBox(
             height: 4,
             child: Row(
@@ -469,31 +441,39 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
           const SizedBox(height: 6),
-          RichText(
-            text: TextSpan(
-              children: [
-                TextSpan(
-                  text: state.meshStats.btRangeKm.toStringAsFixed(1),
-                  style: TextStyle(
-                    color: _text,
-                    fontSize: 44,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: state.meshStats.btRangeKm.toStringAsFixed(1),
+                        style: TextStyle(
+                          color: _text,
+                          fontSize: 44,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' KM',
+                        style: TextStyle(
+                          color: const Color(0xFFC8CBD1),
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                TextSpan(
-                  text: ' KM',
-                  style: TextStyle(
-                    color: const Color(0xFFC8CBD1),
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    height: 1,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-          const Spacer(),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -545,22 +525,26 @@ class _DashboardPageState extends State<DashboardPage> {
             : () async {
           final chatArgs = await _controller.startOfflineChat();
           if (!mounted) return;
+          // ignore: use_build_context_synchronously
           Navigator.of(context).pushReplacementNamed(
             AppRoutes.chat,
             arguments: chatArgs,
           );
         },
         icon: const Icon(Icons.bluetooth, size: 22),
-        label: const Text(
-          'START OFFLINE CHAT',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
-            height: 1,
+        label: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'START OFFLINE CHAT',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+              height: 1,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
@@ -613,7 +597,9 @@ class _DashboardPageState extends State<DashboardPage> {
             Container(
               width: 56,
               height: 30,
-              color: DashboardPage.amber,
+              color: state.batterySaverEnabled
+                  ? DashboardPage.amber
+                  : const Color(0xFF4A4D53),
               padding: const EdgeInsets.all(4),
               child: Align(
                 alignment: state.batterySaverEnabled ? Alignment.centerRight : Alignment.centerLeft,
@@ -635,8 +621,8 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       child: Stack(
         children: [
-          Positioned.fill(
-            child: CustomPaint(painter: _TopoPainter()),
+          const Positioned.fill(
+            child: OfflineVectorMapView(minHeight: 250),
           ),
           Positioned(
             top: 16,
@@ -713,14 +699,18 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  '${state.meshStats.meshRadiusKm.toStringAsFixed(1)} KM',
-                  style: const TextStyle(
-                    color: Color(0xFFF5F6F8),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 44,
-                    height: 1,
-                    letterSpacing: 0.5,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${state.meshStats.meshRadiusKm.toStringAsFixed(1)} KM',
+                    style: const TextStyle(
+                      color: Color(0xFFF5F6F8),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 44,
+                      height: 1,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
               ],
@@ -865,39 +855,52 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _quickStatusCard({
-    required Color borderColor,
-    required IconData icon,
-    required String label,
-    VoidCallback? onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 210,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2A2C31),
-          border: Border(left: BorderSide(color: borderColor, width: 4)),
+  Widget _quickGrid(PermissionsState permissions) {
+    return GridView.count(
+      physics: const NeverScrollableScrollPhysics(),
+      shrinkWrap: true,
+      crossAxisCount: 2,
+      childAspectRatio: 1.25,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      children: [
+        _QuickCard(
+          icon: Icons.check,
+          label: 'I AM SAFE',
+          iconBg: const Color(0xFFF4B51B),
+          iconColor: Colors.black,
+          onTap: permissions.canUseMeshActions
+              ? () => _sendQuickStatus(QuickStatusType.iAmSafe)
+              : _permissionsController.requestPermissions,
         ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: Colors.white, size: 28),
-              const SizedBox(height: 18),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Color(0xFFF4F6FA),
-                  fontSize: 23,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.7,
-                ),
-              ),
-            ],
-          ),
+        _QuickCard(
+          icon: Icons.medical_services,
+          label: 'NEED HELP',
+          iconBg: const Color(0xFFFFB9B9),
+          iconColor: const Color(0xFF4E1C1C),
+          onTap: permissions.canUseMeshActions
+              ? () => _sendQuickStatus(QuickStatusType.needHelp)
+              : _permissionsController.requestPermissions,
         ),
-      ),
+        _QuickCard(
+          icon: Icons.explore,
+          label: 'EN ROUTE',
+          iconBg: const Color(0xFFB3B8C1),
+          iconColor: const Color(0xFF1F242B),
+          onTap: permissions.canUseMeshActions
+              ? () => _sendQuickStatus(QuickStatusType.onMyWay)
+              : _permissionsController.requestPermissions,
+        ),
+        _QuickCard(
+          icon: Icons.battery_3_bar,
+          label: 'LOW BATTERY',
+          iconBg: const Color(0xFFC8CCD3),
+          iconColor: const Color(0xFF30343C),
+          onTap: permissions.canUseMeshActions
+              ? () => _sendQuickStatus(QuickStatusType.lowBattery)
+              : _permissionsController.requestPermissions,
+        ),
+      ],
     );
   }
 
@@ -946,35 +949,6 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-class _TopoPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = const Color(0xFF5B5F68).withOpacity(0.12);
-
-    for (double i = -30; i < size.width + 70; i += 38) {
-      final path = Path();
-      path.moveTo(i, 0);
-      path.cubicTo(i + 24, size.height * 0.2, i - 18, size.height * 0.45, i + 10, size.height * 0.65);
-      path.cubicTo(i + 35, size.height * 0.82, i - 12, size.height * 0.95, i + 18, size.height);
-      canvas.drawPath(path, paint);
-    }
-
-    final glow = Paint()
-      ..shader = const RadialGradient(
-        colors: [Color(0x331B1F27), Color(0x001B1F27)],
-      ).createShader(Rect.fromCircle(center: Offset(size.width * 0.78, size.height * 0.32), radius: size.height * 0.45));
-    canvas.drawRect(Offset.zero & size, glow);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return false;
-  }
-}
-
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
@@ -1016,6 +990,61 @@ class _NavItem extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.5,
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+class _QuickCard extends StatelessWidget {
+  const _QuickCard({
+    required this.icon,
+    required this.label,
+    required this.iconBg,
+    required this.iconColor,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color iconBg;
+  final Color iconColor;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        color: _DashboardPageState._panelSoft,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: iconBg,
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, color: iconColor, size: 15),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFFE9EBEF),
+                fontSize: 13,
+                letterSpacing: 0.7,
+                fontWeight: FontWeight.w700,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
