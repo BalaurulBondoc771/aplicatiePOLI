@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_routes.dart';
+import 'features/offline_map/offline_map_service.dart';
 import 'permissions/permissions_controller.dart';
 import 'permissions/permissions_state.dart';
 import 'quick_status_models.dart';
@@ -18,6 +19,8 @@ class _SosPageState extends State<SosPage> {
   BroadcastResultDto? _quickStatusResult;
   final SosController _controller = SosController();
   final PermissionsController _permissionsController = PermissionsController();
+  final OfflineMapService _offlineMapService = createOfflineMapService();
+  bool _offlineMapDownloaded = false;
 
   static const Color _bg = Color(0xFF080A0E);
   static const Color _panel = Color(0xFF16181D);
@@ -30,6 +33,7 @@ class _SosPageState extends State<SosPage> {
     super.initState();
     _controller.init();
     _permissionsController.init();
+    _refreshOfflineMapStatus();
   }
 
   @override
@@ -37,6 +41,21 @@ class _SosPageState extends State<SosPage> {
     _permissionsController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshOfflineMapStatus() async {
+    try {
+      final inspection = await _offlineMapService.inspectRomaniaPack();
+      if (!mounted) return;
+      setState(() {
+        _offlineMapDownloaded = inspection.exists && !inspection.corrupted;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _offlineMapDownloaded = false;
+      });
+    }
   }
 
   @override
@@ -124,45 +143,11 @@ class _SosPageState extends State<SosPage> {
                         ],
                         _quickGrid(permissionState),
                         const SizedBox(height: 14),
-                        _section('EMERGENCY BROADCAST LIST'),
-                        const SizedBox(height: 10),
-                        if (state.sendResult != null && state.sendResult!.recipients.isNotEmpty)
-                          ...state.sendResult!.recipients.map(
-                            (r) => _contactTile(
-                              name: r.name,
-                              role: 'STATUS: ${r.status}${r.error != null ? ' (${r.error})' : ''}',
-                            ),
-                          )
-                        else ...[
-                          _contactTile(
-                            name: 'SARAH JENKINS',
-                            role: 'SPOUSE - SMS ONLY',
-                          ),
-                          _contactTile(
-                            name: 'LOCAL SAR TEAM',
-                            role: 'AUTHORITY - RADIO/SMS',
-                          ),
-                        ],
-                        if (state.errorMessage != null) ...[
-                          const SizedBox(height: 10),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            color: const Color(0x33EF242B),
-                            child: Text(
-                              'SOS ERROR: ${state.errorMessage}',
-                              style: const TextStyle(
-                                color: Color(0xFFF5F6F8),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 14),
                         _section('LAST KNOWN LOCATION'),
                         const SizedBox(height: 10),
                         _locationCard(state),
+                        const SizedBox(height: 10),
+                        _offlineMapLink(context),
                         const SizedBox(height: 30),
                       ],
                     ),
@@ -339,9 +324,12 @@ class _SosPageState extends State<SosPage> {
         width: double.infinity,
         color: _amber,
         child: Stack(
+          alignment: Alignment.center,
           children: [
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   width: 110,
@@ -485,69 +473,6 @@ class _SosPageState extends State<SosPage> {
     });
   }
 
-  Widget _contactTile({required String name, required String role}) {
-    return Container(
-      height: 78,
-      decoration: BoxDecoration(
-        color: _panel,
-        border: Border(bottom: BorderSide(color: const Color(0xFF252933), width: 1)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            color: const Color(0xFF30343C),
-            child: const Icon(Icons.person, color: Color(0xFFA4A9B3), size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    color: Color(0xFFF0F2F6),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                    height: 1,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  role,
-                  style: const TextStyle(
-                    color: Color(0xFF868B95),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                    height: 1,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: _amberStrong,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.check, color: Colors.black, size: 16),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _locationCard(SosState state) {
     return Container(
       height: 185,
@@ -559,6 +484,33 @@ class _SosPageState extends State<SosPage> {
       child: Stack(
         children: [
           Positioned.fill(child: CustomPaint(painter: _MapPainter())),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              color: Colors.black,
+              child: Row(
+                children: [
+                  Icon(
+                    _offlineMapDownloaded ? Icons.map : Icons.map_outlined,
+                    color: _offlineMapDownloaded ? _amberStrong : const Color(0xFF8F939D),
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _offlineMapDownloaded ? 'OFFLINE MAP READY' : 'OFFLINE MAP MISSING',
+                    style: const TextStyle(
+                      color: Color(0xFFF0F2F6),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           Align(
             child: Container(
               width: 56,
@@ -598,6 +550,41 @@ class _SosPageState extends State<SosPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _offlineMapLink(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        await Navigator.of(context).pushNamed(AppRoutes.offlineMap);
+        if (!mounted) return;
+        await _refreshOfflineMapStatus();
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12),
+        height: 46,
+        width: double.infinity,
+        color: const Color(0xFF12151B),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Row(
+          children: const [
+            Icon(Icons.map_outlined, color: Color(0xFFF7B20F), size: 18),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'OPEN OFFLINE ROMANIA MAP',
+                style: TextStyle(
+                  color: Color(0xFFEFF1F5),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+            Icon(Icons.arrow_forward, color: Color(0xFF8F939D), size: 16),
+          ],
+        ),
       ),
     );
   }

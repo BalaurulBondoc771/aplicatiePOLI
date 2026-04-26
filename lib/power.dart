@@ -40,7 +40,7 @@ class _PowerPageState extends State<PowerPage> {
       initialData: _controller.state,
       builder: (context, snapshot) {
         final state = snapshot.data ?? _controller.state;
-        final body = Scaffold(
+        return Scaffold(
           backgroundColor: _bg,
           body: SafeArea(
             bottom: true,
@@ -231,20 +231,6 @@ class _PowerPageState extends State<PowerPage> {
               ],
             ),
           ),
-        );
-
-        if (!state.grayscaleUiEnabled) {
-          return body;
-        }
-
-        return ColorFiltered(
-          colorFilter: const ColorFilter.matrix(<double>[
-            0.2126, 0.7152, 0.0722, 0, 0,
-            0.2126, 0.7152, 0.0722, 0, 0,
-            0.2126, 0.7152, 0.0722, 0, 0,
-            0, 0, 0, 1, 0,
-          ]),
-          child: body,
         );
       },
     );

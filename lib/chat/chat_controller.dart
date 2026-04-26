@@ -50,11 +50,26 @@ class ChatController {
 
     _connectionSub = ChatChannelService.connectionUpdates.listen((event) {
       if (event['event'] != 'connection_state') return;
+      final String incomingState = '${event['state'] ?? _state.connectionState}';
+      final String? peerId = event['peerId'] != null ? '${event['peerId']}' : null;
+      final String? peerName = event['peerName'] != null ? '${event['peerName']}' : null;
+      final String? sessionId = event['sessionId'] != null ? '${event['sessionId']}' : null;
+      final bool connected = incomingState.toLowerCase() == 'connected';
+      final ChatSessionDto nextSession = _state.session.copyWith(
+        sessionId: sessionId,
+        peerId: peerId,
+        peerName: peerName,
+        connected: connected,
+        standby: !connected,
+        status: '${event['sessionState'] ?? _state.sessionState}',
+        clearError: true,
+      );
       _emit(
         _state.copyWith(
-          connectionState: '${event['state'] ?? _state.connectionState}',
+          connectionState: incomingState,
           latencyMs: (event['latencyMs'] as num?)?.toInt() ?? _state.latencyMs,
           sessionState: '${event['sessionState'] ?? _state.sessionState}',
+          session: nextSession,
           clearError: true,
         ),
       );
@@ -211,7 +226,7 @@ class ChatController {
         final ChatSessionDto session = ChatSessionDto.fromMap(response);
         _emit(_state.copyWith(loading: false, session: session, clearError: true));
       } else {
-        final String? errorCode = response['error'] != null ? '${response['error']}' : 'session_open_failed';
+        final String errorCode = response['error'] != null ? '${response['error']}' : 'session_open_failed';
         _emit(
           _state.copyWith(
             loading: false,

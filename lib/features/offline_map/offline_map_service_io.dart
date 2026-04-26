@@ -1,0 +1,103 @@
+import 'dart:io';
+
+import 'package:path_provider/path_provider.dart';
+
+import 'offline_map_service.dart';
+
+class _IoOfflineMapService implements OfflineMapService {
+  static const String _fileName = 'romania.mbtiles';
+  static const String _folderName = 'maps';
+  static const String _url = 'https://example.com/maps/romania.mbtiles';
+
+  @override
+  String get romaniaMapUrl => _url;
+
+  Future<File> _packFile() async {
+    final Directory docs = await getApplicationDocumentsDirectory();
+    final Directory mapsDir = Directory('${docs.path}${Platform.pathSeparator}$_folderName');
+    if (!mapsDir.existsSync()) {
+      mapsDir.createSync(recursive: true);
+    }
+    return File('${mapsDir.path}${Platform.pathSeparator}$_fileName');
+  }
+
+  @override
+  Future<bool> isSupported() async => true;
+
+  @override
+  Future<MapPackInspection> inspectRomaniaPack() async {
+    final File file = await _packFile();
+    if (!file.existsSync()) {
+      return const MapPackInspection(exists: false, corrupted: false);
+    }
+    final int size = await file.length();
+    final bool corrupted = size <= 1024;
+    return MapPackInspection(
+      exists: !corrupted,
+      corrupted: corrupted,
+      localPath: file.path,
+      fileSizeBytes: size,
+    );
+  }
+
+  @override
+  Future<MapPackInspection> downloadRomaniaPack({required void Function(double progress) onProgress}) async {
+    final File file = await _packFile();
+    final File temp = File('${file.path}.part');
+    if (temp.existsSync()) {
+      temp.deleteSync();
+    }
+
+    final HttpClient client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 15);
+    final HttpClientRequest request = await client.getUrl(Uri.parse(_url));
+    final HttpClientResponse response = await request.close();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('Failed to download map pack (HTTP ${response.statusCode})');
+    }
+
+    final IOSink sink = temp.openWrite();
+    final int total = response.contentLength;
+    int received = 0;
+
+    await for (final List<int> chunk in response) {
+      sink.add(chunk);
+      received += chunk.length;
+      if (total > 0) {
+        onProgress((received / total).clamp(0, 1));
+      }
+    }
+
+    await sink.flush();
+    await sink.close();
+
+    final int size = await temp.length();
+    if (size <= 1024) {
+      temp.deleteSync();
+      throw const FileSystemException('Downloaded map pack is empty or corrupted.');
+    }
+
+    if (file.existsSync()) {
+      file.deleteSync();
+    }
+    temp.renameSync(file.path);
+
+    return MapPackInspection(
+      exists: true,
+      corrupted: false,
+      localPath: file.path,
+      fileSizeBytes: size,
+    );
+  }
+
+  @override
+  Future<void> deleteRomaniaPack() async {
+    final File file = await _packFile();
+    if (file.existsSync()) {
+      await file.delete();
+    }
+  }
+}
+
+OfflineMapService createOfflineMapServiceImpl() => _IoOfflineMapService();

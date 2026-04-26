@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../app_display_settings.dart';
 import '../services/power_channel_service.dart';
 import '../services/sos_channel_service.dart';
 import 'power_state.dart';
@@ -137,11 +138,13 @@ class PowerController {
   }
 
   void _applyPowerSettings(Map<String, dynamic> map) {
+    final bool grayscaleEnabled = map['grayscaleUiEnabled'] == true;
+    AppDisplaySettings.setGrayscale(grayscaleEnabled);
     _emit(
       _state.copyWith(
         batterySaverEnabled: map['batterySaverEnabled'] == true,
         lowPowerBluetoothEnabled: map['lowPowerBluetoothEnabled'] == true,
-        grayscaleUiEnabled: map['grayscaleUiEnabled'] == true,
+        grayscaleUiEnabled: grayscaleEnabled,
         criticalTasksOnlyEnabled: map['criticalTasksOnlyEnabled'] == true,
         sosActive: map['sosActive'] == true,
         scanIntervalMs: (map['scanIntervalMs'] as num?)?.toInt() ?? _state.scanIntervalMs,

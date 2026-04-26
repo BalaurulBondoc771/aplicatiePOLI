@@ -19,6 +19,29 @@ class ChatSessionDto {
   final String? status;
   final String? errorCode;
 
+  ChatSessionDto copyWith({
+    String? sessionId,
+    String? peerId,
+    String? peerName,
+    bool? connected,
+    bool? standby,
+    int? startedAtMs,
+    String? status,
+    String? errorCode,
+    bool clearError = false,
+  }) {
+    return ChatSessionDto(
+      sessionId: sessionId ?? this.sessionId,
+      peerId: peerId ?? this.peerId,
+      peerName: peerName ?? this.peerName,
+      connected: connected ?? this.connected,
+      standby: standby ?? this.standby,
+      startedAtMs: startedAtMs ?? this.startedAtMs,
+      status: status ?? this.status,
+      errorCode: clearError ? null : (errorCode ?? this.errorCode),
+    );
+  }
+
   factory ChatSessionDto.standby({
     String? peerId,
     String? peerName,

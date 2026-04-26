@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Build
 import android.content.Intent
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
@@ -1394,7 +1395,11 @@ class BlackoutChannelCoordinator(
                 )
             }
 
-            val type = mapQuickStatusType(rawStatus)
+            val normalizedStatus = rawStatus.substringBefore("|").uppercase()
+            val type = mapQuickStatusType(normalizedStatus)
+            val expiresAtMs = System.currentTimeMillis() + 5 * 60 * 1000
+            val localDeviceName = Build.MODEL ?: "UNKNOWN_DEVICE"
+            val statusPayload = "STATUS:$normalizedStatus|DEVICE=$localDeviceName|EXP=$expiresAtMs"
             val dao = database.messageDao()
             val conversationDao = database.conversationDao()
             var sentCount = 0
@@ -1411,7 +1416,7 @@ class BlackoutChannelCoordinator(
                         senderId = "LOCAL_USER",
                         receiverId = peer.id,
                         type = type.name,
-                        content = "STATUS:$rawStatus",
+                        content = statusPayload,
                         createdAt = createdAt,
                         status = MessageDeliveryStatus.QUEUED.name,
                         conversationId = peer.id
@@ -1422,7 +1427,7 @@ class BlackoutChannelCoordinator(
                         id = peer.id,
                         peerId = peer.id,
                         title = peer.name,
-                        lastMessagePreview = "STATUS:$rawStatus",
+                        lastMessagePreview = statusPayload,
                         updatedAt = createdAt,
                         unreadCount = 0
                     )
@@ -1433,7 +1438,7 @@ class BlackoutChannelCoordinator(
                     senderId = "LOCAL_USER",
                     receiverId = peer.id,
                     type = type,
-                    content = "STATUS:$rawStatus",
+                    content = statusPayload,
                     createdAt = createdAt
                 )
 

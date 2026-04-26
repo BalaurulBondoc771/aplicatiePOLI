@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import 'dashboard/dashboard_controller.dart';
 import 'dashboard/dashboard_models.dart';
+import 'features/offline_map/offline_map_service.dart';
 import 'permissions/permissions_controller.dart';
 import 'permissions/permissions_state.dart';
 import 'quick_status_models.dart';
@@ -18,7 +19,9 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   final DashboardController _controller = DashboardController();
   final PermissionsController _permissionsController = PermissionsController();
+  final OfflineMapService _offlineMapService = createOfflineMapService();
   BroadcastResultDto? _quickStatusResult;
+  bool _offlineMapDownloaded = false;
 
   static const Color _bg = Color(0xFF050608);
   static const Color _panel = Color(0xFF17191D);
@@ -33,6 +36,7 @@ class _DashboardPageState extends State<DashboardPage> {
     super.initState();
     _controller.init();
     _permissionsController.init();
+    _refreshOfflineMapStatus();
   }
 
   @override
@@ -40,6 +44,21 @@ class _DashboardPageState extends State<DashboardPage> {
     _permissionsController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshOfflineMapStatus() async {
+    try {
+      final inspection = await _offlineMapService.inspectRomaniaPack();
+      if (!mounted) return;
+      setState(() {
+        _offlineMapDownloaded = inspection.exists && !inspection.corrupted;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _offlineMapDownloaded = false;
+      });
+    }
   }
 
   @override
@@ -146,8 +165,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           _batterySaverRow(state),
                           const SizedBox(height: 24),
                           _meshRadiusCard(state),
-                          const SizedBox(height: 24),
-                          _sosButton(context, enabled: permissionState.canUseSosActions),
+                          const SizedBox(height: 10),
+                          _offlineMapLink(context),
                           const SizedBox(height: 26),
                           _sectionLabel('NETWORK PEERS'),
                           const SizedBox(height: 14),
@@ -651,6 +670,34 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
           Positioned(
+            top: 16,
+            right: 16,
+            child: Container(
+              height: 30,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              color: Colors.black,
+              child: Row(
+                children: [
+                  Icon(
+                    _offlineMapDownloaded ? Icons.map : Icons.map_outlined,
+                    color: _offlineMapDownloaded ? DashboardPage.amber : const Color(0xFF8F939D),
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _offlineMapDownloaded ? 'MAP PACK READY' : 'MAP PACK MISSING',
+                    style: const TextStyle(
+                      color: Color(0xFFF0F2F6),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 10,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
             left: 16,
             bottom: 20,
             child: Column(
@@ -684,35 +731,35 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _sosButton(BuildContext context, {required bool enabled}) {
-    return SizedBox(
-      height: 66,
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _red,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: const RoundedRectangleBorder(),
-        ),
-        onPressed: !enabled
-            ? null
-            : () async {
-          await _controller.activateSos();
-          if (!mounted) return;
-          Navigator.of(context).pushReplacementNamed(AppRoutes.sos);
-        },
-        icon: const Icon(Icons.emergency_outlined, size: 24),
-        label: const Text(
-          'ACTIVATE SOS BEACON',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.1,
-            height: 1,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+  Widget _offlineMapLink(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        await Navigator.of(context).pushNamed(AppRoutes.offlineMap);
+        if (!mounted) return;
+        await _refreshOfflineMapStatus();
+      },
+      child: Container(
+        height: 46,
+        width: double.infinity,
+        color: const Color(0xFF12151B),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Row(
+          children: const [
+            Icon(Icons.map_outlined, color: DashboardPage.amber, size: 18),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'OPEN OFFLINE ROMANIA MAP',
+                style: TextStyle(
+                  color: Color(0xFFEFF1F5),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+            Icon(Icons.arrow_forward, color: Color(0xFF8F939D), size: 16),
+          ],
         ),
       ),
     );

@@ -6,6 +6,23 @@ enum QuickStatusType {
   needHelp,
 }
 
+extension QuickStatusTypeLabel on QuickStatusType {
+  String get label {
+    switch (this) {
+      case QuickStatusType.iAmSafe:
+        return 'I AM SAFE';
+      case QuickStatusType.onMyWay:
+        return 'ON MY WAY';
+      case QuickStatusType.needWater:
+        return 'NEED WATER';
+      case QuickStatusType.lowBattery:
+        return 'LOW BATTERY';
+      case QuickStatusType.needHelp:
+        return 'NEED HELP';
+    }
+  }
+}
+
 extension QuickStatusTypeWire on QuickStatusType {
   String get wireValue {
     switch (this) {
@@ -20,6 +37,90 @@ extension QuickStatusTypeWire on QuickStatusType {
       case QuickStatusType.needHelp:
         return 'NEED_HELP';
     }
+  }
+}
+
+class QuickStatusPayload {
+  const QuickStatusPayload({
+    required this.wireStatus,
+    required this.deviceName,
+    required this.expiresAtMs,
+  });
+
+  final String wireStatus;
+  final String deviceName;
+  final int expiresAtMs;
+
+  static QuickStatusPayload? fromMessageContent(String content) {
+    if (!content.startsWith('STATUS:')) {
+      return null;
+    }
+
+    final String raw = content.substring('STATUS:'.length);
+    final List<String> parts = raw.split('|');
+    if (parts.isEmpty || parts.first.trim().isEmpty) {
+      return null;
+    }
+
+    final String wire = parts.first.trim().toUpperCase();
+    String device = 'UNKNOWN DEVICE';
+    int expires = 0;
+
+    for (final String part in parts.skip(1)) {
+      final int idx = part.indexOf('=');
+      if (idx <= 0 || idx >= part.length - 1) continue;
+      final String key = part.substring(0, idx).trim().toUpperCase();
+      final String value = part.substring(idx + 1).trim();
+      if (key == 'DEVICE' && value.isNotEmpty) {
+        device = value;
+      }
+      if (key == 'EXP') {
+        expires = int.tryParse(value) ?? 0;
+      }
+    }
+
+    return QuickStatusPayload(
+      wireStatus: wire,
+      deviceName: device,
+      expiresAtMs: expires,
+    );
+  }
+
+  String get statusLabel {
+    switch (wireStatus) {
+      case 'I_AM_SAFE':
+        return 'I AM SAFE';
+      case 'ON_MY_WAY':
+      case 'EN_ROUTE':
+        return 'ON MY WAY';
+      case 'NEED_WATER':
+        return 'NEED WATER';
+      case 'LOW_BATTERY':
+        return 'LOW BATTERY';
+      case 'NEED_HELP':
+        return 'NEED HELP';
+      default:
+        return wireStatus.replaceAll('_', ' ');
+    }
+  }
+
+  bool get isExpired {
+    if (expiresAtMs <= 0) return false;
+    return DateTime.now().millisecondsSinceEpoch >= expiresAtMs;
+  }
+
+  String get remainingLabel {
+    if (isExpired || expiresAtMs <= 0) {
+      return 'STANDBY';
+    }
+    final int remainingMs = expiresAtMs - DateTime.now().millisecondsSinceEpoch;
+    final int clamped = remainingMs < 0 ? 0 : remainingMs;
+    final int totalSec = (clamped / 1000).ceil();
+    final int mm = totalSec ~/ 60;
+    final int ss = totalSec % 60;
+    final String mmTxt = mm.toString().padLeft(2, '0');
+    final String ssTxt = ss.toString().padLeft(2, '0');
+    return '$mmTxt:$ssTxt';
   }
 }
 

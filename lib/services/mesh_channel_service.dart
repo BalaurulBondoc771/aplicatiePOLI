@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class MeshChannelService {
@@ -7,43 +8,78 @@ class MeshChannelService {
   static const EventChannel _peersChannel = EventChannel('blackout_link/mesh/peers');
 
   static Stream<Map<String, dynamic>> get peersUpdates =>
-      _peersChannel.receiveBroadcastStream().map(_toMap);
+      kIsWeb ? const Stream<Map<String, dynamic>>.empty() : _peersChannel.receiveBroadcastStream().map(_toMap);
 
   static Future<Map<String, dynamic>> startScan() async {
-    final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>('startScan');
-    return _toMap(result);
+    if (kIsWeb) {
+      return <String, dynamic>{'ok': false, 'error': 'unsupported_on_web'};
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>('startScan');
+      return _toMap(result);
+    } on MissingPluginException {
+      return <String, dynamic>{'ok': false, 'error': 'missing_plugin'};
+    }
   }
 
   static Future<Map<String, dynamic>> stopScan() async {
-    final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>('stopScan');
-    return _toMap(result);
+    if (kIsWeb) {
+      return <String, dynamic>{'ok': false, 'error': 'unsupported_on_web'};
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>('stopScan');
+      return _toMap(result);
+    } on MissingPluginException {
+      return <String, dynamic>{'ok': false, 'error': 'missing_plugin'};
+    }
   }
 
   static Future<Map<String, dynamic>> refreshPeers() async {
-    final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>('refreshPeers');
-    return _toMap(result);
+    if (kIsWeb) {
+      return <String, dynamic>{'ok': true, 'peers': <dynamic>[]};
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>('refreshPeers');
+      return _toMap(result);
+    } on MissingPluginException {
+      return <String, dynamic>{'ok': true, 'peers': <dynamic>[]};
+    }
   }
 
   static Future<Map<String, dynamic>> getRecentPeers({int limit = 20}) async {
-    final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
-      'getRecentPeers',
-      <String, dynamic>{'limit': limit},
-    );
-    return _toMap(result);
+    if (kIsWeb) {
+      return <String, dynamic>{'ok': true, 'peers': <dynamic>[]};
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'getRecentPeers',
+        <String, dynamic>{'limit': limit},
+      );
+      return _toMap(result);
+    } on MissingPluginException {
+      return <String, dynamic>{'ok': true, 'peers': <dynamic>[]};
+    }
   }
 
   static Future<Map<String, dynamic>> markTrustedPeer({
     required String peerId,
     required bool trusted,
   }) async {
-    final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
-      'markTrustedPeer',
-      <String, dynamic>{
-        'peerId': peerId,
-        'trusted': trusted,
-      },
-    );
-    return _toMap(result);
+    if (kIsWeb) {
+      return <String, dynamic>{'ok': false, 'error': 'unsupported_on_web'};
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'markTrustedPeer',
+        <String, dynamic>{
+          'peerId': peerId,
+          'trusted': trusted,
+        },
+      );
+      return _toMap(result);
+    } on MissingPluginException {
+      return <String, dynamic>{'ok': false, 'error': 'missing_plugin'};
+    }
   }
 
   static Map<String, dynamic> _toMap(Object? event) {
