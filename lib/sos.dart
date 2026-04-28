@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_routes.dart';
+import 'features/offline_map/offline_map_dialog.dart';
 import 'features/offline_map/offline_map_service.dart';
 import 'features/offline_map/offline_vector_map_view.dart';
 import 'permissions/permissions_controller.dart';
@@ -561,6 +562,14 @@ class _SosPageState extends State<SosPage> {
               latitude: state.latitude,
               longitude: state.longitude,
               minHeight: 185,
+              interactive: false,
+              onPreviewTap: () => showOfflineMapDialog(
+                context: context,
+                latitude: state.latitude,
+                longitude: state.longitude,
+                title: 'SOS MAP',
+                showMyLocation: true,
+              ),
             ),
           ),
           Positioned(

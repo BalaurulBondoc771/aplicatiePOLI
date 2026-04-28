@@ -4,6 +4,7 @@ import '../../app_routes.dart';
 import '../../permissions/permissions_controller.dart';
 import '../../permissions/permissions_state.dart';
 import 'offline_map_controller.dart';
+import 'offline_map_dialog.dart';
 import 'offline_map_state.dart';
 import 'offline_vector_map_view.dart';
 
@@ -292,7 +293,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
 
   Widget _mapPreview(OfflineMapState state) {
     return Container(
-      height: 220,
+      height: 340,
       width: double.infinity,
       decoration: BoxDecoration(
         color: const Color(0xFF0C1018),
@@ -302,9 +303,20 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
         children: [
           Positioned.fill(
             child: OfflineVectorMapView(
+              mapPackPath: state.localPath,
               latitude: state.latitude,
               longitude: state.longitude,
-              minHeight: 220,
+              minHeight: 340,
+              showMyLocation: true,
+              interactive: false,
+              onPreviewTap: () => showOfflineMapDialog(
+                context: context,
+                mapPackPath: state.localPath,
+                latitude: state.latitude,
+                longitude: state.longitude,
+                showMyLocation: true,
+                title: 'OFFLINE ROMANIA MAP',
+              ),
             ),
           ),
           Positioned(

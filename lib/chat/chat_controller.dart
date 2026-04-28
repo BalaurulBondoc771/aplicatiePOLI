@@ -9,6 +9,8 @@ import 'chat_session_dto.dart';
 class ChatController {
   ChatController();
 
+  static const String _sendFailedMessageText = 'Mesajul nu a putut fi trimis.';
+
   final StreamController<ChatState> _stateController = StreamController<ChatState>.broadcast();
 
   ChatState _state = ChatState.initial();
@@ -76,6 +78,8 @@ class ChatController {
     }, onError: (Object error) {
       _emit(_state.copyWith(connectionState: 'error', lastError: '$error'));
     });
+
+    await _loadHistory();
   }
 
   void updateDraft(String value) {
@@ -93,13 +97,26 @@ class ChatController {
       return;
     }
 
+    final String? targetPeerId = _state.session.peerId?.trim().isNotEmpty == true
+        ? _state.session.peerId
+        : null;
+    if (targetPeerId == null) {
+      _emit(
+        _state.copyWith(
+          lastError: 'missing_peer',
+          messages: _appendSendErrorMessage(_state.messages),
+        ),
+      );
+      return;
+    }
+
     final int now = DateTime.now().millisecondsSinceEpoch;
     final String localId = 'local_$now';
     final ChatMessageDto pending = ChatMessageDto.outgoingDraft(
       id: localId,
       content: text,
       createdAtMs: now,
-    );
+    ).copyWith(peerId: targetPeerId);
 
     _emit(
       _state.copyWith(
@@ -111,10 +128,11 @@ class ChatController {
     );
 
     try {
+      final String? sessionId = _effectiveSessionId(_state.session);
       final response = await ChatChannelService.sendMessage(
         content: text,
-        receiverId: _state.session.peerId,
-        sessionId: _state.session.sessionId,
+        receiverId: targetPeerId,
+        sessionId: sessionId,
       );
 
       final String status = '${response['status'] ?? 'FAILED'}'.toUpperCase();
@@ -129,14 +147,16 @@ class ChatController {
           status: status,
           createdAtMs: createdAt,
           conversationId: _state.session.sessionId,
+          peerId: targetPeerId,
         );
       }).toList(growable: false);
 
+      final bool failed = status == 'FAILED' || (response['ok'] == false);
       _emit(
         _state.copyWith(
           sending: false,
-          messages: updated,
-          lastError: error,
+          messages: failed ? _appendSendErrorMessage(updated) : updated,
+          lastError: failed ? (error ?? 'send_failed') : error,
         ),
       );
     } catch (e) {
@@ -148,7 +168,7 @@ class ChatController {
       _emit(
         _state.copyWith(
           sending: false,
-          messages: updated,
+          messages: _appendSendErrorMessage(updated),
           lastError: 'send_failed:$e',
         ),
       );
@@ -170,10 +190,18 @@ class ChatController {
     _emit(_state.copyWith(messages: queued, sending: true, clearError: true));
 
     try {
+      final String? targetPeerId = failed.peerId?.trim().isNotEmpty == true
+          ? failed.peerId
+          : (_state.session.peerId?.trim().isNotEmpty == true ? _state.session.peerId : null);
+      if (targetPeerId == null) {
+        throw StateError('missing_peer');
+      }
+
+      final String? sessionId = _effectiveSessionId(_state.session);
       final response = await ChatChannelService.sendMessage(
         content: failed.content,
-        receiverId: _state.session.peerId,
-        sessionId: _state.session.sessionId,
+        receiverId: targetPeerId,
+        sessionId: sessionId,
       );
       final String status = '${response['status'] ?? 'FAILED'}'.toUpperCase();
       final String remoteId = response['messageId'] != null ? '${response['messageId']}' : messageId;
@@ -187,6 +215,7 @@ class ChatController {
           status: status,
           createdAtMs: createdAt,
           conversationId: _state.session.sessionId,
+          peerId: targetPeerId,
         );
       }).toList(growable: false);
 
@@ -260,11 +289,66 @@ class ChatController {
     _stateController.close();
   }
 
+  Future<void> _loadHistory() async {
+    try {
+      final String? chatId = _state.session.peerId;
+      final response = await ChatChannelService.fetchHistory(chatId: chatId);
+      final rawMessages = response['messages'];
+      if (rawMessages is! List) {
+        return;
+      }
+
+      final List<ChatMessageDto> restored = <ChatMessageDto>[];
+      for (final item in rawMessages) {
+        if (item is Map) {
+          restored.add(ChatMessageDto.fromIncoming(item.cast<String, dynamic>()));
+        }
+      }
+      restored.sort((a, b) => a.createdAtMs.compareTo(b.createdAtMs));
+      _emit(_state.copyWith(messages: restored, loading: false, clearError: true));
+    } catch (_) {
+      _emit(_state.copyWith(loading: false));
+    }
+  }
+
   bool _containsMessage(String id) {
     for (final message in _state.messages) {
       if (message.id == id) return true;
     }
     return false;
+  }
+
+  List<ChatMessageDto> _appendSendErrorMessage(List<ChatMessageDto> base) {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final ChatMessageDto errorMessage = ChatMessageDto(
+      id: 'send_error_$now',
+      content: _sendFailedMessageText,
+      createdAtMs: now,
+      status: 'INFO',
+      outgoing: false,
+      senderId: 'SYSTEM',
+      type: 'ERROR',
+      peerId: _state.session.peerId,
+      conversationId: _state.session.sessionId,
+    );
+    return <ChatMessageDto>[...base, errorMessage];
+  }
+
+  void appendSendFailureNotice() {
+    _emit(
+      _state.copyWith(
+        messages: _appendSendErrorMessage(_state.messages),
+        lastError: 'send_failed',
+      ),
+    );
+  }
+
+  String? _effectiveSessionId(ChatSessionDto session) {
+    final String id = session.sessionId.trim();
+    if (id.isEmpty) return null;
+    if (session.standby || !session.connected) return null;
+    if (id.startsWith('standby_')) return null;
+    return id;
   }
 
   void _emit(ChatState value) {

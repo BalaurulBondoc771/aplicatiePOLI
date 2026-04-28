@@ -66,17 +66,26 @@ class ChatMessageDto {
     final int ts = (map['createdAt'] as num?)?.toInt() ??
         (map['timestamp'] as num?)?.toInt() ??
         DateTime.now().millisecondsSinceEpoch;
+    final String? senderId = map['senderId'] != null ? '${map['senderId']}' : null;
+    final String? receiverId = map['receiverId'] != null ? '${map['receiverId']}' : null;
+    final bool outgoing = map['outgoing'] == true ||
+        (map['outgoing'] == null && senderId == 'LOCAL_USER');
+    final String? peerId = outgoing
+        ? (map['peerId'] != null ? '${map['peerId']}' : receiverId)
+        : (map['peerId'] != null
+            ? '${map['peerId']}'
+            : (senderId ?? (map['from'] != null ? '${map['from']}' : null)));
     final String delivery = '${map['deliveryStatus'] ?? map['status'] ?? 'SENT'}'.toUpperCase();
     return ChatMessageDto(
       id: '${map['id'] ?? 'incoming_$ts'}',
       content: '${map['content'] ?? ''}',
       createdAtMs: ts,
       status: delivery,
-      outgoing: '${map['senderId'] ?? ''}' == 'LOCAL_USER',
+      outgoing: outgoing,
       conversationId: map['conversationId'] != null ? '${map['conversationId']}' : null,
-      senderId: map['senderId'] != null ? '${map['senderId']}' : null,
+      senderId: senderId,
       type: map['type'] != null ? '${map['type']}' : 'TEXT',
-      peerId: map['senderId'] != null ? '${map['senderId']}' : (map['from'] != null ? '${map['from']}' : null),
+      peerId: peerId,
     );
   }
 }

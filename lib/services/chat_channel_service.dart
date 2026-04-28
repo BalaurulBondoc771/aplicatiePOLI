@@ -32,8 +32,17 @@ class ChatChannelService {
         },
       );
       return _toMap(result);
+    } on PlatformException catch (e) {
+      return <String, dynamic>{
+        'ok': false,
+        'status': 'FAILED',
+        'error': e.code.isNotEmpty ? e.code : 'platform_exception',
+        'message': e.message,
+      };
     } on MissingPluginException {
       return <String, dynamic>{'ok': false, 'status': 'FAILED', 'error': 'missing_plugin'};
+    } catch (e) {
+      return <String, dynamic>{'ok': false, 'status': 'FAILED', 'error': 'send_exception', 'message': '$e'};
     }
   }
 

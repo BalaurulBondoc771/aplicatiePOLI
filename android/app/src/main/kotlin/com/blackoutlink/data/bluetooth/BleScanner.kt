@@ -12,6 +12,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import com.blackoutlink.domain.model.PeerDevice
 import com.blackoutlink.domain.model.PeerStatus
@@ -61,7 +62,8 @@ class BleScanner(
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 arrayOf(
                     Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_ADVERTISE
                 )
             } else {
                 arrayOf(
@@ -102,7 +104,11 @@ class BleScanner(
             )
             .build()
 
-        val filters = listOf<ScanFilter>()
+        val filters = listOf(
+            ScanFilter.Builder()
+                .setServiceUuid(ParcelUuid(BleTransport.MESH_SERVICE_UUID))
+                .build()
+        )
 
         peerMap.clear()
         _scanInProgress.value = true

@@ -12,11 +12,25 @@ class OfflineMapController {
 
   final StreamController<OfflineMapState> _stateController = StreamController<OfflineMapState>.broadcast();
   OfflineMapState _state = OfflineMapState.initial();
+  StreamSubscription<LocationDto>? _locationSub;
 
   Stream<OfflineMapState> get stateStream => _stateController.stream;
   OfflineMapState get state => _state;
 
   Future<void> init() async {
+    _locationSub = LocationChannelService.locationUpdates.listen(
+      _applyLocation,
+      onError: (Object error) {
+        _emit(_state.copyWith(error: '$error'));
+      },
+    );
+    unawaited(
+      LocationChannelService.observeLocationUpdates().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => <String, dynamic>{'ok': false, 'error': 'observe_location_timeout'},
+      ),
+    );
+
     final bool supported = await _service.isSupported();
     if (!supported) {
       _emit(
@@ -117,13 +131,17 @@ class OfflineMapController {
 
   Future<void> refreshLocation() async {
     try {
-      final LocationDto current = await LocationChannelService.getCurrentLocation();
+      final LocationDto current = await LocationChannelService.getCurrentLocation().timeout(
+        const Duration(seconds: 3),
+      );
       _applyLocation(current);
       return;
     } catch (_) {}
 
     try {
-      final LocationDto fallback = await LocationChannelService.getLastKnownLocation();
+      final LocationDto fallback = await LocationChannelService.getLastKnownLocation().timeout(
+        const Duration(seconds: 3),
+      );
       _applyLocation(fallback);
       _emit(_state.copyWith(error: 'Using last known location.'));
     } catch (e) {
@@ -142,11 +160,13 @@ class OfflineMapController {
         locationPermissionGranted: location.permissionGranted,
         gpsEnabled: location.gpsEnabled,
         locationSource: location.source,
+        clearError: true,
       ),
     );
   }
 
   void dispose() {
+    _locationSub?.cancel();
     _stateController.close();
   }
 

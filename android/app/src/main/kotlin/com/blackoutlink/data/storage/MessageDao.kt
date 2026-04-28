@@ -14,6 +14,12 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
     fun observeByConversation(conversationId: String): Flow<List<MessageEntity>>
 
+    @Query("SELECT * FROM messages ORDER BY createdAt ASC")
+    suspend fun getAll(): List<MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+    suspend fun getByConversation(conversationId: String): List<MessageEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: MessageEntity)
 

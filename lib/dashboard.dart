@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import 'dashboard/dashboard_controller.dart';
 import 'dashboard/dashboard_models.dart';
+import 'features/offline_map/offline_map_dialog.dart';
 import 'features/offline_map/offline_map_service.dart';
 import 'features/offline_map/offline_vector_map_view.dart';
 import 'permissions/permissions_controller.dart';
@@ -621,8 +622,16 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       child: Stack(
         children: [
-          const Positioned.fill(
-            child: OfflineVectorMapView(minHeight: 250),
+          Positioned.fill(
+            child: OfflineVectorMapView(
+              minHeight: 250,
+              interactive: false,
+              onPreviewTap: () => showOfflineMapDialog(
+                context: context,
+                title: 'NETWORK MAP',
+                showMyLocation: true,
+              ),
+            ),
           ),
           Positioned(
             top: 16,

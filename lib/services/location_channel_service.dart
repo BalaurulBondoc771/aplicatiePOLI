@@ -9,10 +9,28 @@ class LocationChannelService {
   static const MethodChannel _methodChannel = MethodChannel('blackout_link/location');
   static const EventChannel _updatesChannel = EventChannel('blackout_link/location/updates');
 
-  static Stream<LocationDto> get locationUpdates =>
-      kIsWeb
-          ? const Stream<LocationDto>.empty()
-          : _updatesChannel.receiveBroadcastStream().map(_toMap).map(LocationDto.fromMap);
+  static Stream<LocationDto> get locationUpdates {
+    if (kIsWeb) {
+      return const Stream<LocationDto>.empty();
+    }
+
+    return _updatesChannel.receiveBroadcastStream().map(_toMap).asyncExpand((map) {
+      if (map['ok'] != true) {
+        return Stream<LocationDto>.error(
+          PlatformException(
+            code: '${map['error'] ?? 'location_update_error'}',
+            message: '${map['message'] ?? map['error'] ?? 'Location update failed'}',
+          ),
+        );
+      }
+
+      if (map['latitude'] == null || map['longitude'] == null) {
+        return const Stream<LocationDto>.empty();
+      }
+
+      return Stream<LocationDto>.value(LocationDto.fromMap(map));
+    });
+  }
 
   static Future<LocationDto> getCurrentLocation() async {
     if (kIsWeb) {

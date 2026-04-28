@@ -10,6 +10,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import com.blackoutlink.data.bluetooth.BleScanner
+import com.blackoutlink.data.bluetooth.BleTransport
 import com.blackoutlink.data.location.LocationTracker
 import com.blackoutlink.data.permissions.PermissionManager
 import com.blackoutlink.data.protocol.MeshProtocol
@@ -92,8 +93,14 @@ class BlackoutChannelCoordinator(
     private var sosActive = false
     private val chatSessionByPeerId = mutableMapOf<String, String>()
     private val chatSessionMeta = mutableMapOf<String, Map<String, Any?>>()
+    private val localNodeId: String by lazy {
+        (Settings.Secure.getString(activity.contentResolver, Settings.Secure.ANDROID_ID)
+            ?.uppercase()
+            ?.takeIf { it.isNotBlank() }) ?: "LOCAL_NODE"
+    }
 
     private val bleScanner = BleScanner(activity.applicationContext)
+    private val bleTransport = BleTransport(activity.applicationContext)
     private val database: BlackoutDatabase = Room.databaseBuilder(
         activity.applicationContext,
         BlackoutDatabase::class.java,
@@ -146,6 +153,7 @@ class BlackoutChannelCoordinator(
         configureEventChannels(messenger)
         startMeshCollectors()
         startSystemHealthTicker()
+        subscribeToIncomingTransport()
     }
 
     fun requestMeshRuntimePermissionsIfNeeded() {
@@ -318,14 +326,16 @@ class BlackoutChannelCoordinator(
                     return
                 }
 
-                val peerIdArg = call.argument<String>("peerId")
+                val peerIdArg = normalizePeerId(call.argument<String>("peerId"))
                 val activePeers = meshRepository.getCurrentPeers().filter {
                     val status = it.status.name
                     status == "CONNECTED" || status == "SCANNING"
                 }
 
                 val selectedPeer = when {
-                    peerIdArg != null -> activePeers.firstOrNull { it.id == peerIdArg }
+                    peerIdArg != null -> activePeers.firstOrNull {
+                        normalizePeerId(it.id) == peerIdArg
+                    }
                     activePeers.isNotEmpty() -> activePeers.first()
                     else -> null
                 }
@@ -411,7 +421,7 @@ class BlackoutChannelCoordinator(
 
             "sendMessage" -> {
                 val content = call.argument<String>("content").orEmpty().trim()
-                val receiverId = call.argument<String>("receiverId")
+                val receiverId = normalizePeerId(call.argument<String>("receiverId"))
                 val sessionId = call.argument<String>("sessionId")
                 scope.launch {
                     val response = processSendMessage(
@@ -432,13 +442,37 @@ class BlackoutChannelCoordinator(
             }
 
             "fetchHistory" -> {
-                result.success(
-                    mapOf(
-                        "ok" to true,
-                        "method" to "fetchHistory",
-                        "messages" to emptyList<Map<String, Any?>>()
+                val chatId = call.argument<String>("chatId")
+                scope.launch {
+                    val messages = withContext(Dispatchers.IO) {
+                        val dao = database.messageDao()
+                        if (chatId.isNullOrBlank()) dao.getAll() else dao.getByConversation(chatId)
+                    }
+                    result.success(
+                        mapOf(
+                            "ok" to true,
+                            "method" to "fetchHistory",
+                            "messages" to messages.map { entity ->
+                                mapOf(
+                                    "id" to entity.id,
+                                    "conversationId" to entity.conversationId,
+                                    "senderId" to entity.senderId,
+                                    "receiverId" to entity.receiverId,
+                                    "content" to entity.content,
+                                    "type" to entity.type,
+                                    "createdAt" to entity.createdAt,
+                                    "deliveryStatus" to entity.status,
+                                    "outgoing" to (entity.senderId == localNodeId),
+                                    "peerId" to if (entity.senderId == localNodeId) {
+                                        entity.receiverId
+                                    } else {
+                                        entity.senderId
+                                    }
+                                )
+                            }
+                        )
                     )
-                )
+                }
             }
 
             "getConversationList" -> {
@@ -499,7 +533,9 @@ class BlackoutChannelCoordinator(
                     return
                 }
 
+                bleTransport.startServer()
                 val response = meshRepository.startScan()
+                bleTransport.startAdvertising()
                 _meshState.update {
                     it.copy(
                         permissionsMissing = !bleScanner.hasPermissions(),
@@ -526,6 +562,8 @@ class BlackoutChannelCoordinator(
 
             "stopScan" -> {
                 val response = meshRepository.stopScan()
+                bleTransport.stopAdvertising()
+                bleTransport.stopServer()
                 _meshState.update {
                     it.copy(
                         scanActive = meshRepository.scanInProgress.value,
@@ -1327,8 +1365,8 @@ class BlackoutChannelCoordinator(
 
         val messageId = UUID.randomUUID().toString()
         val createdAt = System.currentTimeMillis()
-        val senderId = "LOCAL_USER"
-        val resolvedReceiver = receiverId ?: resolvePeerIdFromSession(sessionId)
+        val senderId = localNodeId
+        val resolvedReceiver = normalizePeerId(receiverId ?: resolvePeerIdFromSession(sessionId))
 
         val message = MeshMessage(
             id = messageId,
@@ -1365,18 +1403,19 @@ class BlackoutChannelCoordinator(
             )
         )
 
-        val payload = MeshProtocol.encode(message)
-        val encrypted = cryptoManager.encrypt(payload)
+        val packet = MeshProtocol.encode(message)
 
-        val hasConnection = hasActiveTransport(resolvedReceiver)
+        val hasConnection = if (resolvedReceiver != null) true else hasActiveTransport(null)
         if (!hasConnection) {
-            emitChatConnectionState(
-                state = "disconnected",
-                latencyMs = 0,
-                sessionState = "no_transport",
-                sessionId = sessionId,
-                peerId = resolvedReceiver
-            )
+            withContext(Dispatchers.Main) {
+                emitChatConnectionState(
+                    state = "disconnected",
+                    latencyMs = 0,
+                    sessionState = "no_transport",
+                    sessionId = sessionId,
+                    peerId = resolvedReceiver
+                )
+            }
             return@withContext mapOf(
                 "ok" to false,
                 "method" to "sendMessage",
@@ -1387,35 +1426,39 @@ class BlackoutChannelCoordinator(
             )
         }
 
-        val sent = encrypted.cipherText.isNotEmpty()
+        val sent = if (resolvedReceiver != null) {
+            bleTransport.sendTo(resolvedReceiver, packet)
+        } else {
+            val connectedPeers = meshRepository.getCurrentPeers().filter {
+                it.status.name == "CONNECTED" || it.status.name == "SCANNING"
+            }
+            var any = false
+            for (peer in connectedPeers) {
+                if (bleTransport.sendTo(peer.id, packet)) any = true
+            }
+            any
+        }
         val finalStatus = if (sent) MessageDeliveryStatus.SENT else MessageDeliveryStatus.FAILED
         dao.updateStatus(messageId, finalStatus.name)
 
-        if (sent) {
-            emitChatConnectionState(
-                state = "connected",
-                latencyMs = 12,
-                sessionState = "active",
-                sessionId = sessionId,
-                peerId = resolvedReceiver
-            )
-            emitIncomingMessage(
-                id = "ack_$messageId",
-                conversationId = sessionId ?: "default_conversation",
-                senderId = resolvedReceiver ?: "MESH_NODE",
-                content = "ACK:$messageId",
-                type = MessageType.TEXT.name,
-                createdAt = System.currentTimeMillis(),
-                deliveryStatus = MessageDeliveryStatus.SENT.name
-            )
-        } else {
-            emitChatConnectionState(
-                state = "error",
-                latencyMs = 0,
-                sessionState = "send_failed",
-                sessionId = sessionId,
-                peerId = resolvedReceiver
-            )
+        withContext(Dispatchers.Main) {
+            if (sent) {
+                emitChatConnectionState(
+                    state = "connected",
+                    latencyMs = 0,
+                    sessionState = "active",
+                    sessionId = sessionId,
+                    peerId = resolvedReceiver
+                )
+            } else {
+                emitChatConnectionState(
+                    state = "error",
+                    latencyMs = 0,
+                    sessionState = "send_failed",
+                    sessionId = sessionId,
+                    peerId = resolvedReceiver
+                )
+            }
         }
 
         mapOf(
@@ -1476,7 +1519,7 @@ class BlackoutChannelCoordinator(
                 dao.upsert(
                     MessageEntity(
                         id = messageId,
-                        senderId = "LOCAL_USER",
+                        senderId = localNodeId,
                         receiverId = peer.id,
                         type = type.name,
                         content = statusPayload,
@@ -1498,7 +1541,7 @@ class BlackoutChannelCoordinator(
 
                 val meshMessage = MeshMessage(
                     id = messageId,
-                    senderId = "LOCAL_USER",
+                    senderId = localNodeId,
                     receiverId = peer.id,
                     type = type,
                     content = statusPayload,
@@ -1506,7 +1549,6 @@ class BlackoutChannelCoordinator(
                 )
 
                 val packet = MeshProtocol.encode(meshMessage)
-                val encrypted = cryptoManager.encrypt(packet)
                 val canSend = hasActiveTransport(peer.id)
                 if (!canSend) {
                     failedCount++
@@ -1514,7 +1556,7 @@ class BlackoutChannelCoordinator(
                     continue
                 }
 
-                val sent = encrypted.cipherText.isNotEmpty()
+                val sent = bleTransport.sendTo(peer.id, packet)
                 if (sent) {
                     sentCount++
                     deliveredCount++
@@ -1574,7 +1616,7 @@ class BlackoutChannelCoordinator(
             dao.upsert(
                 MessageEntity(
                     id = messageId,
-                    senderId = "LOCAL_USER",
+                    senderId = localNodeId,
                     receiverId = peer.id,
                     type = type.name,
                     content = statusPayload,
@@ -1596,7 +1638,7 @@ class BlackoutChannelCoordinator(
 
             val meshMessage = MeshMessage(
                 id = messageId,
-                senderId = "LOCAL_USER",
+                senderId = localNodeId,
                 receiverId = peer.id,
                 type = type,
                 content = statusPayload,
@@ -1604,14 +1646,13 @@ class BlackoutChannelCoordinator(
             )
 
             val packet = MeshProtocol.encode(meshMessage)
-            val encrypted = cryptoManager.encrypt(packet)
             val canSend = hasActiveTransport(peer.id)
             if (!canSend) {
                 dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
                 continue
             }
 
-            val sent = encrypted.cipherText.isNotEmpty()
+            val sent = bleTransport.sendTo(peer.id, packet)
             if (sent) {
                 successfulSends++
                 dao.updateStatus(messageId, MessageDeliveryStatus.SENT.name)
@@ -1697,7 +1738,7 @@ class BlackoutChannelCoordinator(
             dao.upsert(
                 MessageEntity(
                     id = messageId,
-                    senderId = "LOCAL_USER",
+                    senderId = localNodeId,
                     receiverId = peer.id,
                     type = MessageType.SOS.name,
                     content = payloadContent,
@@ -1719,7 +1760,7 @@ class BlackoutChannelCoordinator(
 
             val meshMessage = MeshMessage(
                 id = messageId,
-                senderId = "LOCAL_USER",
+                senderId = localNodeId,
                 receiverId = peer.id,
                 type = MessageType.SOS,
                 content = payloadContent,
@@ -1728,7 +1769,6 @@ class BlackoutChannelCoordinator(
             )
 
             val packet = MeshProtocol.encode(meshMessage)
-            val encrypted = cryptoManager.encrypt(packet)
             val canSend = hasActiveTransport(peer.id)
 
             if (!canSend) {
@@ -1745,7 +1785,7 @@ class BlackoutChannelCoordinator(
                 continue
             }
 
-            val sent = encrypted.cipherText.isNotEmpty()
+            val sent = bleTransport.sendTo(peer.id, packet)
             if (sent) {
                 sentCount++
                 deliveredCount++
@@ -1822,7 +1862,7 @@ class BlackoutChannelCoordinator(
     private fun resolvePeerIdFromSession(sessionId: String?): String? {
         if (sessionId.isNullOrBlank()) return null
         val meta = chatSessionMeta[sessionId] ?: return null
-        return meta["peerId"]?.toString()
+        return normalizePeerId(meta["peerId"]?.toString())
     }
 
     private fun hasActiveTransport(peerId: String?): Boolean {
@@ -1830,7 +1870,17 @@ class BlackoutChannelCoordinator(
         if (peers.isEmpty()) return false
         val active = peers.filter { it.status.name == "CONNECTED" || it.status.name == "SCANNING" }
         if (active.isEmpty()) return false
-        return if (peerId.isNullOrBlank()) true else active.any { it.id == peerId }
+        val normalizedPeerId = normalizePeerId(peerId)
+        return if (normalizedPeerId.isNullOrBlank()) {
+            true
+        } else {
+            active.any { normalizePeerId(it.id) == normalizedPeerId }
+        }
+    }
+
+    private fun normalizePeerId(raw: String?): String? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return value.uppercase()
     }
 
     private fun resolveBroadcastRecipients(): List<PeerDevice> {
@@ -1932,6 +1982,7 @@ class BlackoutChannelCoordinator(
         id: String,
         conversationId: String,
         senderId: String,
+        peerId: String,
         content: String,
         type: String,
         createdAt: Long,
@@ -1943,6 +1994,8 @@ class BlackoutChannelCoordinator(
                 "id" to id,
                 "conversationId" to conversationId,
                 "senderId" to senderId,
+                "peerId" to peerId,
+                "outgoing" to false,
                 "content" to content,
                 "type" to type,
                 "createdAt" to createdAt,
@@ -1971,5 +2024,53 @@ class BlackoutChannelCoordinator(
                 "timestamp" to System.currentTimeMillis()
             )
         )
+    }
+
+    private fun subscribeToIncomingTransport() {
+        scope.launch {
+            bleTransport.incomingBytes.collect { bytes ->
+                try {
+                    val message = MeshProtocol.decode(bytes)
+                    val now = System.currentTimeMillis()
+                    val conversationId = message.senderId
+                    withContext(Dispatchers.IO) {
+                        database.messageDao().upsert(
+                            MessageEntity(
+                                id = message.id,
+                                senderId = message.senderId,
+                                receiverId = message.receiverId,
+                                type = message.type.name,
+                                content = message.content,
+                                createdAt = message.createdAt,
+                                status = MessageDeliveryStatus.DELIVERED.name,
+                                conversationId = conversationId
+                            )
+                        )
+                        database.conversationDao().upsert(
+                            com.blackoutlink.data.storage.ConversationEntity(
+                                id = conversationId,
+                                peerId = message.senderId,
+                                title = message.senderId,
+                                lastMessagePreview = message.content.take(120),
+                                updatedAt = now,
+                                unreadCount = 1
+                            )
+                        )
+                    }
+                    emitIncomingMessage(
+                        id = message.id,
+                        conversationId = conversationId,
+                        senderId = message.senderId,
+                        peerId = message.senderId,
+                        content = message.content,
+                        type = message.type.name,
+                        createdAt = message.createdAt,
+                        deliveryStatus = MessageDeliveryStatus.DELIVERED.name
+                    )
+                } catch (_: Exception) {
+                    // Malformed or incompatible message — discard silently.
+                }
+            }
+        }
     }
 }
