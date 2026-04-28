@@ -30,6 +30,7 @@ import com.blackoutlink.domain.usecase.PowerProfileMapper
 import com.blackoutlink.domain.usecase.QuickStatusRecipientResolver
 import com.blackoutlink.domain.usecase.SystemHealthAggregator
 import com.blackoutlink.domain.usecase.SystemHealthInput
+import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -424,11 +425,20 @@ class BlackoutChannelCoordinator(
                 val receiverId = normalizePeerId(call.argument<String>("receiverId"))
                 val sessionId = call.argument<String>("sessionId")
                 scope.launch {
-                    val response = processSendMessage(
-                        content = content,
-                        receiverId = receiverId,
-                        sessionId = sessionId
-                    )
+                    val response = try {
+                        processSendMessage(
+                            content = content,
+                            receiverId = receiverId,
+                            sessionId = sessionId
+                        )
+                    } catch (_: Throwable) {
+                        mapOf(
+                            "ok" to false,
+                            "method" to "sendMessage",
+                            "status" to MessageDeliveryStatus.FAILED.name,
+                            "error" to "native_send_exception"
+                        )
+                    }
                     result.success(response)
                 }
             }
@@ -1353,6 +1363,7 @@ class BlackoutChannelCoordinator(
         receiverId: String?,
         sessionId: String?
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
+        try {
         val validation = messageValidationUseCase.validateDraft(content)
         if (!validation.valid) {
             return@withContext mapOf(
@@ -1377,36 +1388,54 @@ class BlackoutChannelCoordinator(
             createdAt = createdAt
         )
 
-        val dao = database.messageDao()
-        val conversationDao = database.conversationDao()
+        val dao = try { database.messageDao() } catch (e: Throwable) {
+            Log.e("BLC", "db_open_failed: ${e.javaClass.simpleName}: ${e.message}", e)
+            return@withContext mapOf("ok" to false, "method" to "sendMessage",
+                "status" to MessageDeliveryStatus.FAILED.name, "error" to "db_open_failed")
+        }
+        val conversationDao = try { database.conversationDao() } catch (e: Throwable) {
+            Log.e("BLC", "conv_dao_failed: ${e.javaClass.simpleName}: ${e.message}", e)
+            return@withContext mapOf("ok" to false, "method" to "sendMessage",
+                "status" to MessageDeliveryStatus.FAILED.name, "error" to "db_open_failed")
+        }
         val conversationId = resolvedReceiver ?: "broadcast"
-        dao.upsert(
-            MessageEntity(
-                id = messageId,
-                senderId = senderId,
-                receiverId = resolvedReceiver,
-                type = MessageType.TEXT.name,
-                content = content,
-                createdAt = createdAt,
-                status = MessageDeliveryStatus.QUEUED.name,
-                conversationId = conversationId
+        try {
+            dao.upsert(
+                MessageEntity(
+                    id = messageId,
+                    senderId = senderId,
+                    receiverId = resolvedReceiver,
+                    type = MessageType.TEXT.name,
+                    content = content,
+                    createdAt = createdAt,
+                    status = MessageDeliveryStatus.QUEUED.name,
+                    conversationId = conversationId
+                )
             )
-        )
-        conversationDao.upsert(
-            com.blackoutlink.data.storage.ConversationEntity(
-                id = conversationId,
-                peerId = resolvedReceiver,
-                title = resolvedReceiver ?: "BROADCAST",
-                lastMessagePreview = content.take(120),
-                updatedAt = createdAt,
-                unreadCount = 0
+        } catch (e: Throwable) {
+            Log.e("BLC", "msg_upsert_failed: ${e.javaClass.simpleName}: ${e.message}", e)
+            return@withContext mapOf("ok" to false, "method" to "sendMessage",
+                "status" to MessageDeliveryStatus.FAILED.name, "error" to "db_msg_write_failed")
+        }
+        try {
+            conversationDao.upsert(
+                com.blackoutlink.data.storage.ConversationEntity(
+                    id = conversationId,
+                    peerId = resolvedReceiver,
+                    title = resolvedReceiver ?: "BROADCAST",
+                    lastMessagePreview = content.take(120),
+                    updatedAt = createdAt,
+                    unreadCount = 0
+                )
             )
-        )
+        } catch (e: Throwable) {
+            Log.e("BLC", "conv_upsert_failed: ${e.javaClass.simpleName}: ${e.message}", e)
+            // Non-fatal: conversation metadata failure does not block sending
+        }
 
         val packet = MeshProtocol.encode(message)
 
-        val hasConnection = if (resolvedReceiver != null) true else hasActiveTransport(null)
-        if (!hasConnection) {
+        if (resolvedReceiver == null && !hasActiveTransport(null)) {
             withContext(Dispatchers.Main) {
                 emitChatConnectionState(
                     state = "disconnected",
@@ -1420,7 +1449,7 @@ class BlackoutChannelCoordinator(
                 "ok" to false,
                 "method" to "sendMessage",
                 "messageId" to messageId,
-                "status" to MessageDeliveryStatus.QUEUED.name,
+                "status" to MessageDeliveryStatus.FAILED.name,
                 "createdAt" to createdAt,
                 "error" to "no_active_transport"
             )
@@ -1469,6 +1498,16 @@ class BlackoutChannelCoordinator(
             "createdAt" to createdAt,
             "error" to if (sent) null else "transport_send_failed"
         )
+        } catch (e: Throwable) {
+            Log.e("BLC", "processSendMessage exception: ${e.javaClass.simpleName}: ${e.message}", e)
+            mapOf(
+                "ok" to false,
+                "method" to "sendMessage",
+                "status" to MessageDeliveryStatus.FAILED.name,
+                "error" to "native_send_exception",
+                "detail" to "${e.javaClass.simpleName}: ${e.message?.take(120)}"
+            )
+        }
     }
 
     private suspend fun processQuickStatusBroadcast(rawStatus: String): Map<String, Any?> =
@@ -1988,20 +2027,23 @@ class BlackoutChannelCoordinator(
         createdAt: Long,
         deliveryStatus: String
     ) {
-        chatSink?.success(
-            mapOf(
-                "event" to "incoming_message",
-                "id" to id,
-                "conversationId" to conversationId,
-                "senderId" to senderId,
-                "peerId" to peerId,
-                "outgoing" to false,
-                "content" to content,
-                "type" to type,
-                "createdAt" to createdAt,
-                "deliveryStatus" to deliveryStatus
+        try {
+            chatSink?.success(
+                mapOf(
+                    "event" to "incoming_message",
+                    "id" to id,
+                    "conversationId" to conversationId,
+                    "senderId" to senderId,
+                    "peerId" to peerId,
+                    "outgoing" to false,
+                    "content" to content,
+                    "type" to type,
+                    "createdAt" to createdAt,
+                    "deliveryStatus" to deliveryStatus
+                )
             )
-        )
+        } catch (_: Throwable) {
+        }
     }
 
     private fun emitChatConnectionState(
@@ -2012,32 +2054,36 @@ class BlackoutChannelCoordinator(
         peerId: String? = null,
         peerName: String? = null
     ) {
-        chatConnectionSink?.success(
-            mapOf(
-                "event" to "connection_state",
-                "state" to state,
-                "latencyMs" to latencyMs,
-                "sessionState" to sessionState,
-                "sessionId" to sessionId,
-                "peerId" to peerId,
-                "peerName" to peerName,
-                "timestamp" to System.currentTimeMillis()
+        try {
+            chatConnectionSink?.success(
+                mapOf(
+                    "event" to "connection_state",
+                    "state" to state,
+                    "latencyMs" to latencyMs,
+                    "sessionState" to sessionState,
+                    "sessionId" to sessionId,
+                    "peerId" to peerId,
+                    "peerName" to peerName,
+                    "timestamp" to System.currentTimeMillis()
+                )
             )
-        )
+        } catch (_: Throwable) {
+        }
     }
 
     private fun subscribeToIncomingTransport() {
         scope.launch {
-            bleTransport.incomingBytes.collect { bytes ->
+            bleTransport.incomingBytes.collect { packet ->
                 try {
-                    val message = MeshProtocol.decode(bytes)
+                    val message = MeshProtocol.decode(packet.payload)
                     val now = System.currentTimeMillis()
-                    val conversationId = message.senderId
+                    val peerId = normalizePeerId(packet.sourceAddress) ?: message.senderId
+                    val conversationId = peerId
                     withContext(Dispatchers.IO) {
                         database.messageDao().upsert(
                             MessageEntity(
                                 id = message.id,
-                                senderId = message.senderId,
+                                senderId = peerId,
                                 receiverId = message.receiverId,
                                 type = message.type.name,
                                 content = message.content,
@@ -2049,8 +2095,8 @@ class BlackoutChannelCoordinator(
                         database.conversationDao().upsert(
                             com.blackoutlink.data.storage.ConversationEntity(
                                 id = conversationId,
-                                peerId = message.senderId,
-                                title = message.senderId,
+                                peerId = peerId,
+                                title = peerId,
                                 lastMessagePreview = message.content.take(120),
                                 updatedAt = now,
                                 unreadCount = 1
@@ -2060,14 +2106,14 @@ class BlackoutChannelCoordinator(
                     emitIncomingMessage(
                         id = message.id,
                         conversationId = conversationId,
-                        senderId = message.senderId,
-                        peerId = message.senderId,
+                        senderId = peerId,
+                        peerId = peerId,
                         content = message.content,
                         type = message.type.name,
                         createdAt = message.createdAt,
                         deliveryStatus = MessageDeliveryStatus.DELIVERED.name
                     )
-                } catch (_: Exception) {
+                } catch (_: Throwable) {
                     // Malformed or incompatible message — discard silently.
                 }
             }

@@ -87,8 +87,16 @@ class ChatChannelService {
         },
       );
       return _toMap(result);
+    } on PlatformException catch (e) {
+      return <String, dynamic>{
+        'ok': false,
+        'error': e.code.isNotEmpty ? e.code : 'platform_exception',
+        'message': e.message,
+      };
     } on MissingPluginException {
       return <String, dynamic>{'ok': false, 'error': 'missing_plugin'};
+    } catch (e) {
+      return <String, dynamic>{'ok': false, 'error': 'session_open_exception', 'message': '$e'};
     }
   }
 

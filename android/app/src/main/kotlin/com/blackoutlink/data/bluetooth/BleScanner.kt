@@ -76,7 +76,17 @@ class BleScanner(
     override fun isBluetoothEnabled(): Boolean = bluetoothAdapter?.isEnabled == true
 
     override fun hasPermissions(): Boolean {
-        return requiredPermissions().all { permission ->
+        val requiredForScan = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+        // Do not block scanning if ADVERTISE is denied; scanning still works and can discover peers.
+        return requiredForScan.all { permission ->
             ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
         }
     }

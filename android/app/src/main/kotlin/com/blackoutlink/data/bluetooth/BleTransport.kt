@@ -40,6 +40,11 @@ import java.util.UUID
 @SuppressLint("MissingPermission")
 class BleTransport(private val context: Context) {
 
+    data class IncomingPacket(
+        val sourceAddress: String,
+        val payload: ByteArray
+    )
+
     companion object {
         /** Blackout mesh BLE service UUID — advertised so peers can find us. */
         val MESH_SERVICE_UUID: UUID = UUID.fromString("0000aa01-0000-1000-8000-00805f9b34fb")
@@ -58,9 +63,9 @@ class BleTransport(private val context: Context) {
     private var gattServer: BluetoothGattServer? = null
     private var advertiseCallback: AdvertiseCallback? = null
 
-    // Raw incoming bytes received by the GATT server — callers decode these.
-    private val _incomingBytes = MutableSharedFlow<ByteArray>(extraBufferCapacity = 64)
-    val incomingBytes: SharedFlow<ByteArray> = _incomingBytes.asSharedFlow()
+    // Incoming packets received by the GATT server, including source BLE address.
+    private val _incomingBytes = MutableSharedFlow<IncomingPacket>(extraBufferCapacity = 64)
+    val incomingBytes: SharedFlow<IncomingPacket> = _incomingBytes.asSharedFlow()
 
     // ── GATT server ──────────────────────────────────────────────────────────
 
@@ -159,53 +164,85 @@ class BleTransport(private val context: Context) {
         val gattCallback = object : BluetoothGattCallback() {
 
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                when (newState) {
-                    BluetoothProfile.STATE_CONNECTED -> gatt.requestMtu(TARGET_MTU)
-                    BluetoothProfile.STATE_DISCONNECTED -> {
-                        gatt.close()
-                        if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                try {
+                    when (newState) {
+                        BluetoothProfile.STATE_CONNECTED -> {
+                            if (status != BluetoothGatt.GATT_SUCCESS) {
+                                gatt.disconnect()
+                                if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                                return
+                            }
+
+                            // Some devices do not complete MTU negotiation reliably.
+                            // Fall back to service discovery immediately when MTU request fails.
+                            val mtuRequested = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                                gatt.requestMtu(TARGET_MTU)
+                            } else {
+                                false
+                            }
+                            if (!mtuRequested) {
+                                gatt.discoverServices()
+                            }
+                        }
+                        BluetoothProfile.STATE_DISCONNECTED -> {
+                            gatt.close()
+                            if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                        }
                     }
+                } catch (_: Throwable) {
+                    gatt.close()
+                    if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                 }
             }
 
             override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-                // Discover services regardless of whether MTU negotiation succeeded.
-                gatt.discoverServices()
+                try {
+                    // Discover services regardless of whether MTU negotiation succeeded.
+                    gatt.discoverServices()
+                } catch (_: Throwable) {
+                    gatt.disconnect()
+                    if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                }
             }
 
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    gatt.disconnect()
-                    if (!resultDeferred.isCompleted) resultDeferred.complete(false)
-                    return
-                }
+                try {
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        gatt.disconnect()
+                        if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                        return
+                    }
 
-                val char = gatt.getService(MESH_SERVICE_UUID)
-                    ?.getCharacteristic(MESSAGE_CHAR_UUID)
+                    val char = gatt.getService(MESH_SERVICE_UUID)
+                        ?.getCharacteristic(MESSAGE_CHAR_UUID)
 
-                if (char == null) {
-                    gatt.disconnect()
-                    if (!resultDeferred.isCompleted) resultDeferred.complete(false)
-                    return
-                }
+                    if (char == null) {
+                        gatt.disconnect()
+                        if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                        return
+                    }
 
-                val wrote = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val code = gatt.writeCharacteristic(
-                        char,
-                        payload,
-                        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    )
-                    code == BluetoothStatusCodes.SUCCESS
-                } else {
-                    @Suppress("DEPRECATION")
-                    char.value = payload
-                    @Suppress("DEPRECATION")
-                    char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    @Suppress("DEPRECATION")
-                    gatt.writeCharacteristic(char)
-                }
+                    val wrote = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val code = gatt.writeCharacteristic(
+                            char,
+                            payload,
+                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        )
+                        code == BluetoothStatusCodes.SUCCESS
+                    } else {
+                        @Suppress("DEPRECATION")
+                        char.value = payload
+                        @Suppress("DEPRECATION")
+                        char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        @Suppress("DEPRECATION")
+                        gatt.writeCharacteristic(char)
+                    }
 
-                if (!wrote) {
+                    if (!wrote) {
+                        gatt.disconnect()
+                        if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                    }
+                } catch (_: Throwable) {
                     gatt.disconnect()
                     if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                 }
@@ -216,10 +253,16 @@ class BleTransport(private val context: Context) {
                 characteristic: BluetoothGattCharacteristic,
                 status: Int
             ) {
-                if (!resultDeferred.isCompleted) {
-                    resultDeferred.complete(status == BluetoothGatt.GATT_SUCCESS)
+                try {
+                    if (!resultDeferred.isCompleted) {
+                        resultDeferred.complete(status == BluetoothGatt.GATT_SUCCESS)
+                    }
+                    gatt.disconnect()
+                } catch (_: Throwable) {
+                    if (!resultDeferred.isCompleted) {
+                        resultDeferred.complete(false)
+                    }
                 }
-                gatt.disconnect()
             }
         }
 
@@ -229,17 +272,27 @@ class BleTransport(private val context: Context) {
             return@withContext false
         }
 
-        val gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-        } else {
-            @Suppress("DEPRECATION")
-            device.connectGatt(context, false, gattCallback)
+        val gatt = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+            } else {
+                @Suppress("DEPRECATION")
+                device.connectGatt(context, false, gattCallback)
+            }
+        } catch (_: Throwable) {
+            null
         } ?: return@withContext false
 
         val result = withTimeoutOrNull(SEND_TIMEOUT_MS) { resultDeferred.await() } ?: false
         if (!resultDeferred.isCompleted) {
-            gatt.disconnect()
-            gatt.close()
+            try {
+                gatt.disconnect()
+            } catch (_: Throwable) {
+            }
+            try {
+                gatt.close()
+            } catch (_: Throwable) {
+            }
         }
         result
     }
@@ -258,11 +311,23 @@ class BleTransport(private val context: Context) {
             offset: Int,
             value: ByteArray?
         ) {
-            if (characteristic.uuid == MESSAGE_CHAR_UUID && value != null && value.isNotEmpty()) {
-                _incomingBytes.tryEmit(value)
-            }
-            if (responseNeeded) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+            try {
+                if (characteristic.uuid == MESSAGE_CHAR_UUID && value != null && value.isNotEmpty()) {
+                    val source = device.address?.trim()?.uppercase()
+                    if (!source.isNullOrEmpty()) {
+                        _incomingBytes.tryEmit(IncomingPacket(sourceAddress = source, payload = value))
+                    }
+                }
+                if (responseNeeded) {
+                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                }
+            } catch (_: Throwable) {
+                if (responseNeeded) {
+                    try {
+                        gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
+                    } catch (_: Throwable) {
+                    }
+                }
             }
         }
     }

@@ -601,7 +601,7 @@ class _ChatPageState extends State<ChatPage> {
 			if (!mounted) return;
 			_messageController.clear();
 		} catch (_) {
-			_controller.appendSendFailureNotice();
+			_controller.appendSendFailureNotice(peerId: currentPeerId);
 			if (!mounted) return;
 			ScaffoldMessenger.of(context).showSnackBar(
 				const SnackBar(content: Text('Mesajul nu a putut fi trimis.')),

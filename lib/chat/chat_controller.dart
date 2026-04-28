@@ -9,8 +9,6 @@ import 'chat_session_dto.dart';
 class ChatController {
   ChatController();
 
-  static const String _sendFailedMessageText = 'Mesajul nu a putut fi trimis.';
-
   final StreamController<ChatState> _stateController = StreamController<ChatState>.broadcast();
 
   ChatState _state = ChatState.initial();
@@ -104,7 +102,12 @@ class ChatController {
       _emit(
         _state.copyWith(
           lastError: 'missing_peer',
-          messages: _appendSendErrorMessage(_state.messages),
+          messages: _appendSendErrorMessage(
+            _state.messages,
+            peerId: _state.session.peerId,
+            conversationId: _state.session.sessionId,
+            errorCode: 'missing_peer',
+          ),
         ),
       );
       return;
@@ -139,6 +142,7 @@ class ChatController {
       final String remoteId = response['messageId'] != null ? '${response['messageId']}' : localId;
       final int createdAt = (response['createdAt'] as num?)?.toInt() ?? now;
       final String? error = response['error'] != null ? '${response['error']}' : null;
+      final String? detail = response['detail'] != null ? '${response['detail']}' : null;
 
       final updated = _state.messages.map((message) {
         if (message.id != localId) return message;
@@ -155,7 +159,15 @@ class ChatController {
       _emit(
         _state.copyWith(
           sending: false,
-          messages: failed ? _appendSendErrorMessage(updated) : updated,
+          messages: failed
+              ? _appendSendErrorMessage(
+                  updated,
+                  peerId: targetPeerId,
+                  conversationId: _state.session.sessionId,
+                  errorCode: error,
+                  detail: detail,
+                )
+              : updated,
           lastError: failed ? (error ?? 'send_failed') : error,
         ),
       );
@@ -168,7 +180,12 @@ class ChatController {
       _emit(
         _state.copyWith(
           sending: false,
-          messages: _appendSendErrorMessage(updated),
+          messages: _appendSendErrorMessage(
+            updated,
+            peerId: targetPeerId,
+            conversationId: _state.session.sessionId,
+            errorCode: 'send_failed',
+          ),
           lastError: 'send_failed:$e',
         ),
       );
@@ -318,29 +335,66 @@ class ChatController {
     return false;
   }
 
-  List<ChatMessageDto> _appendSendErrorMessage(List<ChatMessageDto> base) {
+  List<ChatMessageDto> _appendSendErrorMessage(
+    List<ChatMessageDto> base, {
+    String? peerId,
+    String? conversationId,
+    String? errorCode,
+    String? detail,
+  }) {
     final int now = DateTime.now().millisecondsSinceEpoch;
     final ChatMessageDto errorMessage = ChatMessageDto(
       id: 'send_error_$now',
-      content: _sendFailedMessageText,
+      content: _buildSendErrorMessageText(errorCode, detail: detail),
       createdAtMs: now,
       status: 'INFO',
       outgoing: false,
       senderId: 'SYSTEM',
       type: 'ERROR',
-      peerId: _state.session.peerId,
-      conversationId: _state.session.sessionId,
+      peerId: peerId ?? _state.session.peerId,
+      conversationId: conversationId ?? _state.session.sessionId,
     );
     return <ChatMessageDto>[...base, errorMessage];
   }
 
-  void appendSendFailureNotice() {
+  void appendSendFailureNotice({String? peerId, String? conversationId, String? errorCode}) {
     _emit(
       _state.copyWith(
-        messages: _appendSendErrorMessage(_state.messages),
+        messages: _appendSendErrorMessage(
+          _state.messages,
+          peerId: peerId,
+          conversationId: conversationId,
+          errorCode: errorCode,
+        ),
         lastError: 'send_failed',
       ),
     );
+  }
+
+  String _buildSendErrorMessageText(String? rawCode, {String? detail}) {
+    const String base = 'Mesajul nu a putut fi trimis.';
+    final String code = (rawCode ?? '').trim().toLowerCase();
+    final String suffix = (detail != null && detail.isNotEmpty) ? '\n[$detail]' : '';
+    if (code.isEmpty) return base;
+    switch (code) {
+      case 'missing_peer':
+        return '$base Peer lipsa in sesiune.';
+      case 'no_active_transport':
+        return '$base Nu exista transport Bluetooth activ.';
+      case 'transport_send_failed':
+        return '$base Eroare la trimiterea prin Bluetooth.';
+      case 'native_send_exception':
+        return '$base Exceptie nativa Android.$suffix';
+      case 'db_open_failed':
+      case 'db_msg_write_failed':
+        return '$base Eroare baza de date.$suffix';
+      case 'permissions_missing':
+        return '$base Permisiuni Bluetooth lipsa.';
+      case 'peer_not_found':
+        return '$base Peer-ul nu a fost gasit in scan.';
+      default:
+        return '$base Cod: $code$suffix';
+    }
   }
 
   String? _effectiveSessionId(ChatSessionDto session) {
