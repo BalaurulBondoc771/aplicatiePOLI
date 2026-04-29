@@ -1,5 +1,6 @@
 package com.example.blackoutapp
 
+import android.content.Intent
 import com.example.blackoutapp.channels.BlackoutChannelCoordinator
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -22,5 +23,12 @@ class MainActivity : FlutterActivity() {
 	) {
 		super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 			channelCoordinator?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+	}
+
+	override fun onStop() {
+		super.onStop()
+		channelCoordinator?.onHostStopped()
+		val intent = Intent(this, MeshBeaconService::class.java)
+		startForegroundService(intent)
 	}
 }

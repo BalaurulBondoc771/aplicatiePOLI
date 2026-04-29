@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
     <!-- Location permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -22,7 +25,8 @@
         android:label="blackoutapp"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name="com.example.blackoutapp.MainActivity"
             android:exported="true"
@@ -41,6 +45,19 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name="com.example.blackoutapp.MeshBeaconService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+        <receiver
+            android:name="com.example.blackoutapp.BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

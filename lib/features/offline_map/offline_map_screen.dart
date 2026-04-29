@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../app_routes.dart';
 import '../../permissions/permissions_controller.dart';
 import '../../permissions/permissions_state.dart';
+import '../../widgets/app_bottom_nav.dart';
 import 'offline_map_controller.dart';
 import 'offline_map_dialog.dart';
 import 'offline_map_state.dart';
@@ -399,94 +399,6 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
   }
 
   Widget _bottomNav(BuildContext context) {
-    return Container(
-      height: 86,
-      color: const Color(0xFF090B10),
-      padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: _NavItem(
-              icon: Icons.grid_view,
-              label: 'DASHBOARD',
-              active: false,
-              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard),
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.chat,
-              label: 'CHAT',
-              active: false,
-              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.chat),
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.flash_on,
-              label: 'POWER',
-              active: false,
-              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.power),
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.warning,
-              label: 'SOS',
-              active: false,
-              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.sos),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.active,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFFF7B21A) : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: active ? Colors.black : const Color(0xFF737885), size: 21),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: active ? Colors.black : const Color(0xFF737885),
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.7,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
+    return const AppBottomNav(currentRoute: null);
   }
 }

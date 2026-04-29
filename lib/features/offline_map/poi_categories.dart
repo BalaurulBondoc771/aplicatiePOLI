@@ -25,9 +25,10 @@ class PoiCategory {
 
   /// CSS hex color string (#rrggbb) used in MapLibre style JSON.
   String get hexColor {
-    final r = color.r.toInt().toRadixString(16).padLeft(2, '0');
-    final g = color.g.toInt().toRadixString(16).padLeft(2, '0');
-    final b = color.b.toInt().toRadixString(16).padLeft(2, '0');
+    final argb = color.toARGB32();
+    final r = ((argb >> 16) & 0xFF).toRadixString(16).padLeft(2, '0');
+    final g = ((argb >> 8) & 0xFF).toRadixString(16).padLeft(2, '0');
+    final b = (argb & 0xFF).toRadixString(16).padLeft(2, '0');
     return '#$r$g$b';
   }
 }

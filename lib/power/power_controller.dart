@@ -6,10 +6,20 @@ import '../services/sos_channel_service.dart';
 import 'power_state.dart';
 
 class PowerController {
-  PowerController();
+  PowerController() {
+    final int? cached = _lastRuntimeSecondsCache;
+    if (cached != null && cached > 0) {
+      _state = _state.copyWith(
+        runtimeSeconds: cached,
+        runtimeMinutes: cached ~/ 60,
+        runtimeLabel: _formatRuntimeSeconds(cached),
+      );
+    }
+  }
 
   static const int _sosHoldDurationMs = 3000;
   static const int _tickMs = 50;
+  static int? _lastRuntimeSecondsCache;
 
   final StreamController<PowerState> _stateController =
       StreamController<PowerState>.broadcast();
@@ -65,6 +75,24 @@ class PowerController {
   Future<void> setBatterySaver(bool enabled) async {
     final response = await PowerChannelService.setBatterySaver(enabled);
     _applyPowerSettings(response);
+    final bool opened = response['openedSettingsDeepLink'] == true;
+    final bool actuallyEnabled = response['batterySaverEnabled'] == true;
+    final bool canToggleDirectly = response['canToggleDirectly'] == true;
+    _emit(
+      _state.copyWith(
+        lastAction: actuallyEnabled
+            ? 'System Battery Saver is active.'
+            : enabled
+                ? opened
+                    ? (canToggleDirectly
+                        ? 'Battery Saver requested.'
+                        : 'Opened Android Battery Saver settings. Confirm activation there.')
+                    : 'Battery Saver settings unavailable on this device.'
+                : opened
+                    ? 'Opened Android battery settings to turn Battery Saver off manually.'
+                    : 'Battery Saver off request needs manual confirmation in Android settings.',
+      ),
+    );
     await _refreshRuntimeOnly();
   }
 
@@ -92,6 +120,22 @@ class PowerController {
       ),
     );
     await _refreshRuntimeOnly();
+  }
+
+  Future<void> toggleCriticalTasksOnly() async {
+    if (_state.criticalTasksOnlyEnabled) {
+      final response = await PowerChannelService.setCriticalTasksOnly(false);
+      _applyPowerSettings(response);
+      _emit(
+        _state.copyWith(
+          lastAction: 'Critical tasks mode disabled.',
+        ),
+      );
+      await _refreshRuntimeOnly();
+      return;
+    }
+
+    await killBackgroundApps();
   }
 
   void startSosHold() {
@@ -162,6 +206,7 @@ class PowerController {
         clearError: true,
       ),
     );
+    _lastRuntimeSecondsCache = resolvedSeconds;
   }
 
   void _tickRuntimeCountdown() {
@@ -176,6 +221,7 @@ class PowerController {
         runtimeLabel: _formatRuntimeSeconds(nextSeconds),
       ),
     );
+    _lastRuntimeSecondsCache = nextSeconds;
   }
 
   void _applyPowerSettings(Map<String, dynamic> map) {

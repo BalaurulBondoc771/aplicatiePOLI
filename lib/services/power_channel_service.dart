@@ -17,6 +17,11 @@ class PowerChannelService {
       'criticalTasksOnlyEnabled': false,
       'sosActive': false,
       'scanIntervalMs': 1000,
+      'meshActiveInApp': false,
+      'displayName': 'OPERATOR_X',
+      'statusPreset': 'SILENT / INCOGNITO',
+      'backgroundBeaconEnabled': true,
+      'backgroundBeaconActive': false,
       };
 
   static Future<Map<String, dynamic>> setBatterySaver(bool enabled) async {
@@ -80,6 +85,25 @@ class PowerChannelService {
     }
   }
 
+  static Future<Map<String, dynamic>> setCriticalTasksOnly(bool enabled) async {
+    if (kIsWeb) {
+      final data = _defaultSettings();
+      data['criticalTasksOnlyEnabled'] = enabled;
+      return data;
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'setCriticalTasksOnly',
+        <String, dynamic>{'enabled': enabled},
+      );
+      return _toMap(result);
+    } on MissingPluginException {
+      final data = _defaultSettings();
+      data['criticalTasksOnlyEnabled'] = enabled;
+      return data;
+    }
+  }
+
   static Future<Map<String, dynamic>> setScanIntervalMs(int value) async {
     if (kIsWeb) {
       final data = _defaultSettings();
@@ -95,6 +119,60 @@ class PowerChannelService {
     } on MissingPluginException {
       final data = _defaultSettings();
       data['scanIntervalMs'] = value;
+      return data;
+    }
+  }
+
+  static Future<Map<String, dynamic>> setIdentityProfile({
+    required String displayName,
+    required String statusPreset,
+    bool? backgroundDiscoverabilityEnabled,
+  }) async {
+    if (kIsWeb) {
+      final data = _defaultSettings();
+      data['displayName'] = displayName;
+      data['statusPreset'] = statusPreset;
+      if (backgroundDiscoverabilityEnabled != null) {
+        data['backgroundBeaconEnabled'] = backgroundDiscoverabilityEnabled;
+      }
+      return data;
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'setIdentityProfile',
+        <String, dynamic>{
+          'displayName': displayName,
+          'statusPreset': statusPreset,
+          'backgroundDiscoverabilityEnabled': backgroundDiscoverabilityEnabled,
+        },
+      );
+      return _toMap(result);
+    } on MissingPluginException {
+      final data = _defaultSettings();
+      data['displayName'] = displayName;
+      data['statusPreset'] = statusPreset;
+      if (backgroundDiscoverabilityEnabled != null) {
+        data['backgroundBeaconEnabled'] = backgroundDiscoverabilityEnabled;
+      }
+      return data;
+    }
+  }
+
+  static Future<Map<String, dynamic>> setBackgroundDiscoverability(bool enabled) async {
+    if (kIsWeb) {
+      final data = _defaultSettings();
+      data['backgroundBeaconEnabled'] = enabled;
+      return data;
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'setBackgroundDiscoverability',
+        <String, dynamic>{'enabled': enabled},
+      );
+      return _toMap(result);
+    } on MissingPluginException {
+      final data = _defaultSettings();
+      data['backgroundBeaconEnabled'] = enabled;
       return data;
     }
   }

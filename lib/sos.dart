@@ -1,14 +1,13 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import 'features/offline_map/offline_map_dialog.dart';
 import 'features/offline_map/offline_map_service.dart';
 import 'features/offline_map/offline_vector_map_view.dart';
 import 'permissions/permissions_controller.dart';
 import 'permissions/permissions_state.dart';
-import 'quick_status_models.dart';
-import 'services/chat_channel_service.dart';
 import 'sos/sos_controller.dart';
 import 'sos/sos_state.dart';
+import 'widgets/app_bottom_nav.dart';
 
 class SosPage extends StatefulWidget {
   const SosPage({super.key});
@@ -18,7 +17,6 @@ class SosPage extends StatefulWidget {
 }
 
 class _SosPageState extends State<SosPage> {
-  BroadcastResultDto? _quickStatusResult;
   final SosController _controller = SosController();
   final PermissionsController _permissionsController = PermissionsController();
   final OfflineMapService _offlineMapService = createOfflineMapService();
@@ -26,9 +24,9 @@ class _SosPageState extends State<SosPage> {
 
   static const Color _bg = Color(0xFF080A0E);
   static const Color _panel = Color(0xFF16181D);
-  static const Color _panelSoft = Color(0xFF24262C);
   static const Color _amber = Color(0xFFF3C65F);
   static const Color _amberStrong = Color(0xFFF7B20F);
+  static const Color _red = Color(0xFFB50014);
 
   @override
   void initState() {
@@ -119,34 +117,24 @@ class _SosPageState extends State<SosPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _topBar(state),
+                        _topBar(),
                         _coordinatesCard(state),
                         _sosHero(state, permissionState),
-                        const SizedBox(height: 14),
-                        _section('QUICK STATUS SHARE'),
                         const SizedBox(height: 10),
-                        if (_quickStatusResult != null) ...[
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            color: _quickStatusResult!.ok
-                                ? const Color(0x2200DF86)
-                                : const Color(0x33EF242B),
-                            child: Text(
-                              _quickStatusResult!.toBannerText(),
-                              style: const TextStyle(
-                                color: Color(0xFFF5F6F8),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
+                        const Center(
+                          child: Text(
+                            'TAP SURVIVAL GUIDE TO OPEN THE CHECKLIST',
+                            style: TextStyle(
+                              color: Color(0xFF767B86),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.4,
                             ),
+                            textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 10),
-                        ],
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: _quickGrid(permissionState),
                         ),
+                        const SizedBox(height: 12),
+                        _emergencySosAction(state, permissionState),
                         const SizedBox(height: 14),
                         _section('LAST KNOWN LOCATION'),
                         const SizedBox(height: 10),
@@ -169,52 +157,32 @@ class _SosPageState extends State<SosPage> {
     );
   }
 
-  Widget _topBar(SosState state) {
-    final String signal = state.isSending
-        ? 'SIGNAL: SENDING'
-        : (state.sendResult != null ? 'SIGNAL: ${state.sendResult!.ok ? 'DELIVERED' : 'DEGRADED'}' : 'SIGNAL: STANDBY');
+  Widget _topBar() {
     return Container(
-      height: 60,
+      height: 82,
       color: const Color(0xFF171A20),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          Icon(Icons.cell_tower, color: _amberStrong, size: 22),
+          const Icon(Icons.navigation, color: _amberStrong, size: 21),
           const SizedBox(width: 8),
           const Expanded(
             child: Text(
-              'BLACKOUTLINK',
+              'BLACKOUT LINK',
               style: TextStyle(
                 color: Color(0xFFF6B31B),
                 fontSize: 24,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
+                fontWeight: FontWeight.w900,
                 height: 1,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const Spacer(),
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: const Color(0xFFCB9524),
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            signal,
-            style: const TextStyle(
-              color: Color(0xFFB2B6BF),
-              fontWeight: FontWeight.w600,
-              fontSize: 11,
-              letterSpacing: 1.2,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: () => Navigator.of(context).pushNamed(AppRoutes.settings),
+            child: const Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 34),
           ),
         ],
       ),
@@ -252,7 +220,7 @@ class _SosPageState extends State<SosPage> {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '${state.latitude.toStringAsFixed(4)}°N',
+                    '${state.latitude.toStringAsFixed(4)} deg N',
                     style: const TextStyle(
                       color: Color(0xFFE9EBEF),
                       fontSize: 42,
@@ -268,7 +236,7 @@ class _SosPageState extends State<SosPage> {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '${state.longitude.abs().toStringAsFixed(4)}°W',
+                    '${state.longitude.abs().toStringAsFixed(4)} deg W',
                     style: const TextStyle(
                       color: Color(0xFFE9EBEF),
                       fontSize: 42,
@@ -328,9 +296,13 @@ class _SosPageState extends State<SosPage> {
     return GestureDetector(
       onTap: _showSurvivalGuideDialog,
       child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12),
         constraints: const BoxConstraints(minHeight: 280),
         width: double.infinity,
-        color: _amber,
+        decoration: BoxDecoration(
+          color: _amber,
+          border: Border.all(color: const Color(0xFF1A1D24), width: 1),
+        ),
         child: Center(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
@@ -489,68 +461,98 @@ class _SosPageState extends State<SosPage> {
     );
   }
 
-  Widget _quickGrid(PermissionsState permissions) {
-    return GridView.count(
-      physics: const NeverScrollableScrollPhysics(),
-      shrinkWrap: true,
-      crossAxisCount: 2,
-      childAspectRatio: 1.25,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      children: [
-        _QuickCard(
-          icon: Icons.check,
-          label: 'I AM SAFE',
-          iconBg: const Color(0xFFF4B51B),
-          iconColor: Colors.black,
-          onTap: permissions.canUseMeshActions
-              ? () => _sendQuickStatus(QuickStatusType.iAmSafe)
-              : _permissionsController.requestPermissions,
-        ),
-        _QuickCard(
-          icon: Icons.medical_services,
-          label: 'NEED HELP',
-          iconBg: const Color(0xFFFFB9B9),
-          iconColor: const Color(0xFF4E1C1C),
-          onTap: permissions.canUseMeshActions
-              ? () => _sendQuickStatus(QuickStatusType.needHelp)
-              : _permissionsController.requestPermissions,
-        ),
-        _QuickCard(
-          icon: Icons.explore,
-          label: 'EN ROUTE',
-          iconBg: const Color(0xFFB3B8C1),
-          iconColor: const Color(0xFF1F242B),
-          onTap: permissions.canUseMeshActions
-              ? () => _sendQuickStatus(QuickStatusType.onMyWay)
-              : _permissionsController.requestPermissions,
-        ),
-        _QuickCard(
-          icon: Icons.battery_3_bar,
-          label: 'LOW BATTERY',
-          iconBg: const Color(0xFFC8CCD3),
-          iconColor: const Color(0xFF30343C),
-          onTap: permissions.canUseMeshActions
-              ? () => _sendQuickStatus(QuickStatusType.lowBattery)
-              : _permissionsController.requestPermissions,
-        ),
-      ],
+  Widget _emergencySosAction(SosState state, PermissionsState permissions) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Listener(
+            onPointerDown: (_) {
+              if (!permissions.canUseSosActions) {
+                _permissionsController.requestPermissions();
+                return;
+              }
+              _controller.startHold();
+            },
+            onPointerUp: (_) => _controller.endHold(),
+            onPointerCancel: (_) => _controller.endHold(),
+            child: SizedBox(
+              height: 96,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        elevation: 0,
+                        backgroundColor: _red,
+                        foregroundColor: Colors.white,
+                        shape: const RoundedRectangleBorder(),
+                      ),
+                      onPressed: () {},
+                      icon: const Icon(Icons.emergency_outlined, size: 28),
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          state.isSending
+                              ? 'SENDING EMERGENCY\nSOS'
+                              : 'ACTIVATE EMERGENCY\nSOS',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            height: 1.1,
+                            letterSpacing: 0.8,
+                          ),
+                          maxLines: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      height: 7,
+                      color: const Color(0x33000000),
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: state.holdProgress.clamp(0.0, 1.0),
+                        child: Container(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: Text(
+              state.isSending
+                  ? 'BROADCASTING LOCATION...'
+                  : 'HOLD 3 SECONDS TO BROADCAST LOCATION',
+              style: const TextStyle(
+                color: Color(0xFF767B86),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
     );
-  }
-
-  Future<void> _sendQuickStatus(QuickStatusType status) async {
-    final Map<String, dynamic> raw =
-        await ChatChannelService.broadcastQuickStatus(status: status.wireValue);
-    if (!mounted) return;
-    setState(() {
-      _quickStatusResult = BroadcastResultDto.fromMap(raw);
-    });
   }
 
   Widget _locationCard(SosState state) {
     return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12),
       height: 185,
       width: double.infinity,
+      clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: const Color(0xFF0C1018),
         border: Border.all(color: const Color(0xFF161C28), width: 1),
@@ -678,47 +680,7 @@ class _SosPageState extends State<SosPage> {
   }
 
   Widget _bottomNav(BuildContext context) {
-    return Container(
-      height: 86,
-      color: const Color(0xFF12141A),
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: _NavItem(
-              icon: Icons.home_outlined,
-              label: 'DASHBOARD',
-              active: false,
-              onTap: () {
-                Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard);
-              },
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.chat_outlined,
-              label: 'CHAT',
-              active: false,
-              onTap: () {
-                Navigator.of(context).pushReplacementNamed(AppRoutes.chat);
-              },
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.flash_on_outlined,
-              label: 'POWER',
-              active: false,
-              onTap: () {
-                Navigator.of(context).pushReplacementNamed(AppRoutes.power);
-              },
-            ),
-          ),
-          const Expanded(child: _NavItem(icon: Icons.warning_amber_rounded, label: 'SOS', active: true)),
-        ],
-      ),
-    );
+    return const AppBottomNav(currentRoute: AppRoutes.sos);
   }
 
   String _formatTimestamp(int timestampMs) {
@@ -802,102 +764,3 @@ class _SurvivalGuideBadge extends StatelessWidget {
   }
 }
 
-class _QuickCard extends StatelessWidget {
-  const _QuickCard({
-    required this.icon,
-    required this.label,
-    required this.iconBg,
-    required this.iconColor,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color iconBg;
-  final Color iconColor;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        color: _SosPageState._panelSoft,
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(11)),
-              child: Icon(icon, color: iconColor, size: 15),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFFE9EBEF),
-                fontSize: 13,
-                letterSpacing: 0.7,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.active,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFFF7B21A) : Colors.transparent,
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: active ? Colors.black : const Color(0xFF737885),
-              size: 22,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: active ? Colors.black : const Color(0xFF737885),
-                fontSize: 11,
-                letterSpacing: 0.5,
-                fontWeight: FontWeight.w800,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

@@ -4,10 +4,13 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.IntentFilter
+import android.content.Intent
+import android.bluetooth.le.AdvertiseSettings
 import android.os.BatteryManager
 import android.os.Build
-import android.content.Intent
+import android.os.PowerManager
 import android.provider.Settings
+import android.util.Base64
 import androidx.core.app.ActivityCompat
 import com.blackoutlink.data.bluetooth.BleScanner
 import com.blackoutlink.data.bluetooth.BleTransport
@@ -40,6 +43,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -48,6 +52,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import java.util.UUID
+import com.example.blackoutapp.MeshBeaconService
 
 class BlackoutChannelCoordinator(
     messenger: BinaryMessenger,
@@ -76,6 +81,9 @@ class BlackoutChannelCoordinator(
         private const val STALE_LOCATION_MS = 30_000L
         private const val QUICK_STATUS_TTL_MS = 5 * 60 * 1000L
         private const val FALLBACK_DISCHARGE_UA = 180_000.0
+        private const val E2E_PREFIX = "BKE2"
+        private const val E2E_HANDSHAKE_WAIT_MS = 1_500L
+        private const val E2E_HANDSHAKE_POLL_MS = 75L
     }
 
     private var chatSink: EventChannel.EventSink? = null
@@ -92,8 +100,13 @@ class BlackoutChannelCoordinator(
     private var grayscaleUiEnabled = false
     private var criticalTasksOnlyEnabled = false
     private var sosActive = false
+    private var displayName = "OPERATOR_X"
+    private var statusPreset = "SILENT / INCOGNITO"
+    private var lastRuntimeEstimateSeconds: Int? = null
+    private var lastRuntimeSource: String = "battery_percent"
     private val chatSessionByPeerId = mutableMapOf<String, String>()
     private val chatSessionMeta = mutableMapOf<String, Map<String, Any?>>()
+    private val e2eSessionKeys = mutableMapOf<String, ByteArray>()
     private val localNodeId: String by lazy {
         (Settings.Secure.getString(activity.contentResolver, Settings.Secure.ANDROID_ID)
             ?.uppercase()
@@ -135,6 +148,12 @@ class BlackoutChannelCoordinator(
     private val powerProfileMapper = PowerProfileMapper()
     private var pendingPermissionsResult: MethodChannel.Result? = null
 
+    private data class E2eEnvelope(
+        val type: String,
+        val partA: String,
+        val partB: String? = null
+    )
+
     private data class MeshState(
         val peers: List<PeerDevice> = emptyList(),
         val stats: MeshStats = MeshStats(),
@@ -149,6 +168,7 @@ class BlackoutChannelCoordinator(
 
     init {
         hydratePowerSettingsFromStore()
+        applyIdentityProfile()
         applyBluetoothPowerProfile()
         configureMethodChannels(messenger)
         configureEventChannels(messenger)
@@ -184,6 +204,21 @@ class BlackoutChannelCoordinator(
             return
         }
 
+        refreshSystemStatus()
+        emitMeshUpdate()
+    }
+
+    fun onHostStopped() {
+        meshRepository.stopScan()
+        bleTransport.stopAdvertising()
+        bleTransport.stopServer()
+        _meshState.update {
+            it.copy(
+                scanActive = false,
+                bluetoothEnabled = bleScanner.isBluetoothEnabled(),
+                permissionsMissing = !bleScanner.hasPermissions()
+            )
+        }
         refreshSystemStatus()
         emitMeshUpdate()
     }
@@ -445,8 +480,9 @@ class BlackoutChannelCoordinator(
 
             "broadcastQuickStatus" -> {
                 val rawStatus = call.argument<String>("status").orEmpty().trim()
+                val displayName = call.argument<String>("displayName")?.trim()
                 scope.launch {
-                    val response = processQuickStatusBroadcast(rawStatus)
+                    val response = processQuickStatusBroadcast(rawStatus, displayName)
                     result.success(response)
                 }
             }
@@ -963,10 +999,17 @@ class BlackoutChannelCoordinator(
     private fun onPowerMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "setBatterySaver" -> {
-                batterySaverEnabled = call.argument<Boolean>("enabled") ?: false
+                val requestedEnabled = call.argument<Boolean>("enabled") ?: false
+                val openedSettings = openBatterySaverSettings(requestedEnabled)
+                batterySaverEnabled = readSystemBatterySaverEnabled()
                 settingsStore.setBatterySaverEnabled(batterySaverEnabled)
                 meshRepository.setBatterySaverEnabled(batterySaverEnabled)
-                val payload = powerSettingsPayload(method = "setBatterySaver")
+
+                val payload = powerSettingsPayload(method = "setBatterySaver") + mapOf(
+                    "requestedBatterySaverEnabled" to requestedEnabled,
+                    "openedSettingsDeepLink" to openedSettings,
+                    "canToggleDirectly" to false
+                )
                 result.success(payload)
                 powerSink?.success(powerSettingsPayload(event = "power_settings"))
             }
@@ -1001,6 +1044,33 @@ class BlackoutChannelCoordinator(
                 powerSink?.success(powerSettingsPayload(event = "power_settings"))
             }
 
+            "setIdentityProfile" -> {
+                displayName = call.argument<String>("displayName")?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "OPERATOR_X"
+                statusPreset = call.argument<String>("statusPreset")?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "SILENT / INCOGNITO"
+                val backgroundEnabled = call.argument<Boolean>("backgroundDiscoverabilityEnabled")
+                settingsStore.setDisplayName(displayName)
+                settingsStore.setStatusPreset(statusPreset)
+                if (backgroundEnabled != null) {
+                    settingsStore.setBackgroundBeaconEnabled(backgroundEnabled)
+                    syncBackgroundBeaconServiceState(backgroundEnabled)
+                }
+                applyIdentityProfile()
+                val payload = powerSettingsPayload(method = "setIdentityProfile")
+                result.success(payload)
+                powerSink?.success(powerSettingsPayload(event = "power_settings"))
+            }
+
+            "setBackgroundDiscoverability" -> {
+                val enabled = call.argument<Boolean>("enabled") ?: true
+                settingsStore.setBackgroundBeaconEnabled(enabled)
+                syncBackgroundBeaconServiceState(enabled)
+                val payload = powerSettingsPayload(method = "setBackgroundDiscoverability")
+                result.success(payload)
+                powerSink?.success(powerSettingsPayload(event = "power_settings"))
+            }
+
             "killBackgroundApps" -> {
                 criticalTasksOnlyEnabled = true
                 settingsStore.setCriticalTasksOnlyEnabled(true)
@@ -1025,6 +1095,26 @@ class BlackoutChannelCoordinator(
                 powerSink?.success(powerSettingsPayload(event = "power_settings"))
             }
 
+            "setCriticalTasksOnly" -> {
+                criticalTasksOnlyEnabled = call.argument<Boolean>("enabled") ?: false
+                settingsStore.setCriticalTasksOnlyEnabled(criticalTasksOnlyEnabled)
+
+                if (!criticalTasksOnlyEnabled && !sosActive) {
+                    batterySaverEnabled = false
+                    settingsStore.setBatterySaverEnabled(false)
+                    lowPowerBluetoothEnabled = false
+                    settingsStore.setLowPowerBluetoothEnabled(false)
+                    scanIntervalMs = 1_000
+                    settingsStore.setScanIntervalMs(scanIntervalMs.toLong())
+                    applyBluetoothPowerProfile()
+                }
+
+                val payload = powerSettingsPayload(method = "setCriticalTasksOnly") +
+                    mapOf("criticalServicesProtected" to criticalTasksOnlyEnabled)
+                result.success(payload)
+                powerSink?.success(powerSettingsPayload(event = "power_settings"))
+            }
+
             "getPowerSettings", "getSettings" -> {
                 result.success(powerSettingsPayload(method = "getPowerSettings"))
             }
@@ -1043,7 +1133,7 @@ class BlackoutChannelCoordinator(
                         "minsRemainder" to (estimateMinutes % 60),
                         "runtimeLabel" to formatRuntimeLabel(estimateSeconds / 60),
                         "batteryPercent" to (battPct ?: -1),
-                        "runtimeSource" to if (hasRealtimeDischargeTelemetry()) "realtime_current" else "battery_percent",
+                        "runtimeSource" to lastRuntimeSource,
                         "criticalServicesProtected" to true
                     )
                 )
@@ -1054,20 +1144,88 @@ class BlackoutChannelCoordinator(
     }
 
     private fun hydratePowerSettingsFromStore() {
-        batterySaverEnabled = settingsStore.isBatterySaverEnabled()
+        batterySaverEnabled = readSystemBatterySaverEnabled() || settingsStore.isBatterySaverEnabled()
         lowPowerBluetoothEnabled = settingsStore.isLowPowerBluetoothEnabled()
         grayscaleUiEnabled = settingsStore.isGrayscaleUiEnabled()
         criticalTasksOnlyEnabled = settingsStore.isCriticalTasksOnlyEnabled()
         scanIntervalMs = settingsStore.getScanIntervalMs().toInt().coerceIn(1_000, 120_000)
+        displayName = settingsStore.getDisplayName().trim().ifBlank { "OPERATOR_X" }
+        statusPreset = settingsStore.getStatusPreset().trim().ifBlank { "SILENT / INCOGNITO" }
+    }
+
+    private fun applyIdentityProfile() {
+        meshRepository.setLocalDisplayName(displayName)
+        bleTransport.configureIdentity(displayName)
+        bleTransport.configurePeerMetadata(
+            statusPresetCode = mapStatusPresetCode(statusPreset),
+            batterySaverEnabled = batterySaverEnabled,
+            meshRoleCode = mapMeshRoleCode(statusPreset)
+        )
+
+        when (statusPreset.uppercase()) {
+            "SILENT / INCOGNITO" -> {
+                lowPowerBluetoothEnabled = true
+                scanIntervalMs = 120_000
+                bleTransport.configureAdvertiseProfile(
+                    AdvertiseSettings.ADVERTISE_MODE_LOW_POWER,
+                    AdvertiseSettings.ADVERTISE_TX_POWER_LOW
+                )
+            }
+            "FIELD READY" -> {
+                lowPowerBluetoothEnabled = false
+                scanIntervalMs = 15_000
+                bleTransport.configureAdvertiseProfile(
+                    AdvertiseSettings.ADVERTISE_MODE_BALANCED,
+                    AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
+                )
+            }
+            "OPEN BROADCAST" -> {
+                lowPowerBluetoothEnabled = false
+                scanIntervalMs = 1_000
+                bleTransport.configureAdvertiseProfile(
+                    AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY,
+                    AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
+                )
+            }
+            "EMERGENCY WATCH" -> {
+                lowPowerBluetoothEnabled = false
+                scanIntervalMs = 3_000
+                bleTransport.configureAdvertiseProfile(
+                    AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY,
+                    AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
+                )
+            }
+            else -> {
+                bleTransport.configureAdvertiseProfile(
+                    AdvertiseSettings.ADVERTISE_MODE_BALANCED,
+                    AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
+                )
+            }
+        }
+
+        settingsStore.setLowPowerBluetoothEnabled(lowPowerBluetoothEnabled)
+        settingsStore.setScanIntervalMs(scanIntervalMs.toLong())
+        applyBluetoothPowerProfile()
+
+        if (meshRepository.scanInProgress.value) {
+            bleTransport.stopAdvertising()
+            bleTransport.startAdvertising()
+        }
     }
 
     private fun applyBluetoothPowerProfile() {
         val profile = powerProfileMapper.map(lowPowerBluetoothEnabled, scanIntervalMs)
         scanIntervalMs = profile.scanIntervalMs
         meshRepository.setLowPowerBluetoothEnabled(profile.lowPowerBluetoothEnabled, profile.refreshIntervalMs)
+        bleTransport.configurePeerMetadata(
+            statusPresetCode = mapStatusPresetCode(statusPreset),
+            batterySaverEnabled = batterySaverEnabled,
+            meshRoleCode = mapMeshRoleCode(statusPreset)
+        )
     }
 
     private fun powerSettingsPayload(method: String? = null, event: String? = null): Map<String, Any?> {
+        batterySaverEnabled = readSystemBatterySaverEnabled() || batterySaverEnabled
         val base = mutableMapOf<String, Any?>(
             "ok" to true,
             "batterySaverEnabled" to batterySaverEnabled,
@@ -1075,12 +1233,27 @@ class BlackoutChannelCoordinator(
             "grayscaleUiEnabled" to grayscaleUiEnabled,
             "criticalTasksOnlyEnabled" to criticalTasksOnlyEnabled,
             "scanIntervalMs" to scanIntervalMs,
+            "meshActiveInApp" to meshRepository.scanInProgress.value,
+            "displayName" to displayName,
+            "statusPreset" to statusPreset,
+            "backgroundBeaconEnabled" to settingsStore.isBackgroundBeaconEnabled(),
+            "backgroundBeaconActive" to MeshBeaconService.isRunning,
             "sosActive" to sosActive,
             "criticalServicesProtected" to true
         )
         if (method != null) base["method"] = method
         if (event != null) base["event"] = event
         return base
+    }
+
+    private fun syncBackgroundBeaconServiceState(enabled: Boolean) {
+        val intent = Intent(activity.applicationContext, MeshBeaconService::class.java)
+        if (enabled) {
+            if (meshRepository.scanInProgress.value) return
+            activity.startForegroundService(intent)
+        } else {
+            activity.stopService(intent)
+        }
     }
 
     private fun computeRuntimeEstimateMinutes(): Int {
@@ -1090,7 +1263,9 @@ class BlackoutChannelCoordinator(
     private fun computeRuntimeEstimateSeconds(): Int {
         val realtime = readRuntimeFromBatteryTelemetrySeconds()
         if (realtime != null) {
-            return realtime.coerceIn(0, 72 * 3600)
+            val stabilized = stabilizeRuntimeEstimate(realtime.coerceIn(0, 72 * 3600))
+            lastRuntimeSource = "realtime_current"
+            return stabilized
         }
 
         // Fallback estimate based on current battery percent and selected power profile.
@@ -1108,11 +1283,14 @@ class BlackoutChannelCoordinator(
         } else {
             baseFullMinutes
         }
-        return (estMinutes * 60).coerceIn(0, 72 * 3600)
+        val fallbackSeconds = (estMinutes * 60).coerceIn(0, 72 * 3600)
+        val stabilized = stabilizeRuntimeEstimate(fallbackSeconds)
+        lastRuntimeSource = "battery_percent"
+        return stabilized
     }
 
     private fun hasRealtimeDischargeTelemetry(): Boolean {
-        return readRuntimeFromBatteryTelemetrySeconds() != null
+        return lastRuntimeSource == "realtime_current"
     }
 
     private fun readRuntimeFromBatteryTelemetrySeconds(): Int? {
@@ -1121,6 +1299,13 @@ class BlackoutChannelCoordinator(
                 ?: return null
             val chargeCounterUah = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
             val currentNowUa = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            val batteryStatus = readBatteryStatus()
+
+            // If the device is charging/full, discharge telemetry is unreliable for remaining runtime.
+            if (batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
+                batteryStatus == BatteryManager.BATTERY_STATUS_FULL) {
+                return null
+            }
 
             if (chargeCounterUah <= 0) {
                 return null
@@ -1135,9 +1320,36 @@ class BlackoutChannelCoordinator(
                 return null
             }
 
+            // Ignore implausible currents that produce noisy estimates.
+            if (dischargeCurrentUa < 20_000.0 || dischargeCurrentUa > 4_000_000.0) {
+                return null
+            }
+
             ((chargeCounterUah / dischargeCurrentUa) * 3600.0).roundToInt()
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    private fun stabilizeRuntimeEstimate(candidateSeconds: Int): Int {
+        val previous = lastRuntimeEstimateSeconds
+        val stabilized = if (previous == null) {
+            candidateSeconds
+        } else {
+            val maxStep = 20 * 60
+            candidateSeconds.coerceIn(previous - maxStep, previous + maxStep)
+        }
+        lastRuntimeEstimateSeconds = stabilized
+        return stabilized
+    }
+
+    private fun readBatteryStatus(): Int {
+        return try {
+            val intent = activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            intent?.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+                ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+        } catch (_: Throwable) {
+            BatteryManager.BATTERY_STATUS_UNKNOWN
         }
     }
 
@@ -1155,6 +1367,41 @@ class BlackoutChannelCoordinator(
         } catch (_: Throwable) {
             false
         }
+    }
+
+    private fun readSystemBatterySaverEnabled(): Boolean {
+        return try {
+            val powerManager = activity.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            powerManager?.isPowerSaveMode == true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun openBatterySaverSettings(requestedEnabled: Boolean): Boolean {
+        val intents = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                add(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
+            }
+            add(Intent("android.intent.action.POWER_USAGE_SUMMARY"))
+            add(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
+            if (requestedEnabled) {
+                add(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }
+
+        for (intent in intents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (intent.resolveActivity(activity.packageManager) != null) {
+                    activity.startActivity(intent)
+                    return true
+                }
+            } catch (_: Throwable) {
+                // Try next intent.
+            }
+        }
+        return false
     }
 
     private fun onSystemMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -1342,10 +1589,30 @@ class BlackoutChannelCoordinator(
             "status" to status.name.lowercase(),
             "rssi" to rssi,
             "distanceMeters" to ((estimatedDistanceMeters * 100.0).roundToInt() / 100.0),
+            "statusPreset" to statusPreset,
+            "batterySaverEnabled" to batterySaverEnabled,
+            "meshRole" to meshRole,
             "trusted" to trusted,
             "relayCapable" to relayCapable,
             "lastSeenMs" to lastSeenAt
         )
+    }
+
+    private fun mapStatusPresetCode(preset: String): String {
+        return when (preset.uppercase()) {
+            "FIELD READY" -> "FR"
+            "OPEN BROADCAST" -> "OB"
+            "EMERGENCY WATCH" -> "EW"
+            else -> "SI"
+        }
+    }
+
+    private fun mapMeshRoleCode(preset: String): String {
+        return when (preset.uppercase()) {
+            "SILENT / INCOGNITO" -> "S"
+            "EMERGENCY WATCH" -> "W"
+            else -> "R"
+        }
     }
 
     private fun MeshStats.toChannelMap(): Map<String, Any?> {
@@ -1456,7 +1723,33 @@ class BlackoutChannelCoordinator(
         }
 
         val sent = if (resolvedReceiver != null) {
-            bleTransport.sendTo(resolvedReceiver, packet)
+            val hasSession = ensureEncryptedSession(resolvedReceiver, sessionId)
+            if (!hasSession) {
+                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+                return@withContext mapOf(
+                    "ok" to false,
+                    "method" to "sendMessage",
+                    "messageId" to messageId,
+                    "status" to MessageDeliveryStatus.FAILED.name,
+                    "createdAt" to createdAt,
+                    "error" to "e2e_handshake_failed"
+                )
+            }
+            val sessionKey = e2eSessionKeys[resolvedReceiver]
+            if (sessionKey == null) {
+                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+                return@withContext mapOf(
+                    "ok" to false,
+                    "method" to "sendMessage",
+                    "messageId" to messageId,
+                    "status" to MessageDeliveryStatus.FAILED.name,
+                    "createdAt" to createdAt,
+                    "error" to "e2e_session_missing"
+                )
+            }
+            val encrypted = cryptoManager.encryptWithSessionKey(packet, sessionKey)
+            val envelope = encodeEncryptedPayload(encrypted.iv, encrypted.cipherText)
+            bleTransport.sendTo(resolvedReceiver, envelope)
         } else {
             val connectedPeers = meshRepository.getCurrentPeers().filter {
                 it.status.name == "CONNECTED" || it.status.name == "SCANNING"
@@ -1471,13 +1764,15 @@ class BlackoutChannelCoordinator(
         dao.updateStatus(messageId, finalStatus.name)
 
         withContext(Dispatchers.Main) {
+            val encrypted = hasEncryptedSession(resolvedReceiver)
             if (sent) {
                 emitChatConnectionState(
                     state = "connected",
                     latencyMs = 0,
                     sessionState = "active",
                     sessionId = sessionId,
-                    peerId = resolvedReceiver
+                    peerId = resolvedReceiver,
+                    encryptionEnabled = encrypted
                 )
             } else {
                 emitChatConnectionState(
@@ -1485,7 +1780,8 @@ class BlackoutChannelCoordinator(
                     latencyMs = 0,
                     sessionState = "send_failed",
                     sessionId = sessionId,
-                    peerId = resolvedReceiver
+                    peerId = resolvedReceiver,
+                    encryptionEnabled = encrypted
                 )
             }
         }
@@ -1510,16 +1806,16 @@ class BlackoutChannelCoordinator(
         }
     }
 
-    private suspend fun processQuickStatusBroadcast(rawStatus: String): Map<String, Any?> =
+    private suspend fun processQuickStatusBroadcast(rawStatus: String, displayName: String? = null): Map<String, Any?> =
         withContext(Dispatchers.IO) {
             val normalizedStatus = rawStatus.substringBefore("|").uppercase()
             val type = mapQuickStatusType(normalizedStatus)
             val expiresAtMs = System.currentTimeMillis() + QUICK_STATUS_TTL_MS
-            val localDeviceName = Build.MODEL ?: "UNKNOWN_DEVICE"
+            val localDeviceName = displayName?.takeIf { it.isNotBlank() } ?: (Build.MODEL ?: "UNKNOWN_DEVICE")
             val statusPayload = "STATUS:$normalizedStatus|DEVICE=$localDeviceName|EXP=$expiresAtMs"
 
             if (!bleScanner.isBluetoothEnabled()) {
-                settingsStore.setPendingQuickStatus(normalizedStatus, expiresAtMs)
+                settingsStore.setPendingQuickStatus(normalizedStatus, expiresAtMs, localDeviceName)
                 return@withContext mapOf(
                     "ok" to true,
                     "method" to "broadcastQuickStatus",
@@ -1533,7 +1829,7 @@ class BlackoutChannelCoordinator(
 
             val recipients = resolveBroadcastRecipients()
             if (recipients.isEmpty()) {
-                settingsStore.setPendingQuickStatus(normalizedStatus, expiresAtMs)
+                settingsStore.setPendingQuickStatus(normalizedStatus, expiresAtMs, localDeviceName)
                 return@withContext mapOf(
                     "ok" to true,
                     "method" to "broadcastQuickStatus",
@@ -1641,7 +1937,9 @@ class BlackoutChannelCoordinator(
             return
         }
 
-        val localDeviceName = Build.MODEL ?: "UNKNOWN_DEVICE"
+        val localDeviceName = settingsStore.getPendingQuickStatusDeviceName()
+            ?.takeIf { it.isNotBlank() }
+            ?: (Build.MODEL ?: "UNKNOWN_DEVICE")
         val statusPayload = "STATUS:$pendingStatus|DEVICE=$localDeviceName|EXP=$expiresAtMs"
         val type = mapQuickStatusType(pendingStatus)
         val dao = database.messageDao()
@@ -2052,7 +2350,8 @@ class BlackoutChannelCoordinator(
         sessionState: String,
         sessionId: String? = null,
         peerId: String? = null,
-        peerName: String? = null
+        peerName: String? = null,
+        encryptionEnabled: Boolean? = null
     ) {
         try {
             chatConnectionSink?.success(
@@ -2064,6 +2363,7 @@ class BlackoutChannelCoordinator(
                     "sessionId" to sessionId,
                     "peerId" to peerId,
                     "peerName" to peerName,
+                    "encryptionEnabled" to encryptionEnabled,
                     "timestamp" to System.currentTimeMillis()
                 )
             )
@@ -2071,10 +2371,176 @@ class BlackoutChannelCoordinator(
         }
     }
 
+    private fun encodeHandshakeHello(): ByteArray {
+        val pub = Base64.encodeToString(cryptoManager.getIdentityPublicKeyEncoded(), Base64.NO_WRAP)
+        return "$E2E_PREFIX|HS1|$pub".encodeToByteArray()
+    }
+
+    private fun encodeHandshakeAck(): ByteArray {
+        val pub = Base64.encodeToString(cryptoManager.getIdentityPublicKeyEncoded(), Base64.NO_WRAP)
+        return "$E2E_PREFIX|HS2|$pub".encodeToByteArray()
+    }
+
+    private fun encodeEncryptedPayload(iv: ByteArray, cipherText: ByteArray): ByteArray {
+        val ivPart = Base64.encodeToString(iv, Base64.NO_WRAP)
+        val dataPart = Base64.encodeToString(cipherText, Base64.NO_WRAP)
+        return "$E2E_PREFIX|MSG|$ivPart|$dataPart".encodeToByteArray()
+    }
+
+    private fun decodeEnvelope(payload: ByteArray): E2eEnvelope? {
+        val text = runCatching { payload.decodeToString() }.getOrNull() ?: return null
+        if (!text.startsWith("$E2E_PREFIX|")) return null
+        val parts = text.split('|')
+        if (parts.size < 3) return null
+        return E2eEnvelope(
+            type = parts[1].uppercase(),
+            partA = parts[2],
+            partB = parts.getOrNull(3)
+        )
+    }
+
+    private fun setEncryptedSession(peerId: String, sessionKey: ByteArray) {
+        val normalizedPeer = normalizePeerId(peerId) ?: return
+        e2eSessionKeys[normalizedPeer] = sessionKey
+    }
+
+    private fun hasEncryptedSession(peerId: String?): Boolean {
+        val normalizedPeer = normalizePeerId(peerId ?: return false) ?: return false
+        return e2eSessionKeys[normalizedPeer] != null
+    }
+
+    private suspend fun ensureEncryptedSession(peerId: String, sessionId: String?): Boolean {
+        val normalizedPeer = normalizePeerId(peerId) ?: return false
+        if (e2eSessionKeys[normalizedPeer] != null) return true
+
+        val helloSent = bleTransport.sendTo(normalizedPeer, encodeHandshakeHello())
+        if (!helloSent) return false
+
+        emitChatConnectionState(
+            state = "connecting",
+            latencyMs = 0,
+            sessionState = "e2e_handshake",
+            sessionId = sessionId,
+            peerId = normalizedPeer,
+            encryptionEnabled = false
+        )
+
+        var waited = 0L
+        while (waited < E2E_HANDSHAKE_WAIT_MS) {
+            if (e2eSessionKeys[normalizedPeer] != null) {
+                emitChatConnectionState(
+                    state = "connected",
+                    latencyMs = 0,
+                    sessionState = "active",
+                    sessionId = sessionId,
+                    peerId = normalizedPeer,
+                    encryptionEnabled = true
+                )
+                return true
+            }
+            delay(E2E_HANDSHAKE_POLL_MS)
+            waited += E2E_HANDSHAKE_POLL_MS
+        }
+
+        return false
+    }
+
     private fun subscribeToIncomingTransport() {
         scope.launch {
             bleTransport.incomingBytes.collect { packet ->
                 try {
+                    val sourcePeerId = normalizePeerId(packet.sourceAddress) ?: packet.sourceAddress
+                    val envelope = decodeEnvelope(packet.payload)
+
+                    if (envelope != null) {
+                        when (envelope.type) {
+                            "HS1" -> {
+                                val remotePub = Base64.decode(envelope.partA, Base64.DEFAULT)
+                                val sessionKey = cryptoManager.deriveSessionKey(remotePub)
+                                setEncryptedSession(sourcePeerId, sessionKey)
+                                bleTransport.sendTo(sourcePeerId, encodeHandshakeAck())
+                                emitChatConnectionState(
+                                    state = "connected",
+                                    latencyMs = 0,
+                                    sessionState = "active",
+                                    peerId = sourcePeerId,
+                                    encryptionEnabled = true
+                                )
+                                return@collect
+                            }
+
+                            "HS2" -> {
+                                val remotePub = Base64.decode(envelope.partA, Base64.DEFAULT)
+                                val sessionKey = cryptoManager.deriveSessionKey(remotePub)
+                                setEncryptedSession(sourcePeerId, sessionKey)
+                                emitChatConnectionState(
+                                    state = "connected",
+                                    latencyMs = 0,
+                                    sessionState = "active",
+                                    peerId = sourcePeerId,
+                                    encryptionEnabled = true
+                                )
+                                return@collect
+                            }
+
+                            "MSG" -> {
+                                val iv = Base64.decode(envelope.partA, Base64.DEFAULT)
+                                val cipher = Base64.decode(envelope.partB ?: "", Base64.DEFAULT)
+                                val sessionKey = e2eSessionKeys[sourcePeerId] ?: return@collect
+                                val decryptedPacket = cryptoManager.decryptWithSessionKey(
+                                    payload = com.blackoutlink.data.security.EncryptedPayload(iv = iv, cipherText = cipher),
+                                    sessionKey = sessionKey
+                                )
+                                val message = MeshProtocol.decode(decryptedPacket)
+                                val now = System.currentTimeMillis()
+                                val peerId = normalizePeerId(packet.sourceAddress) ?: message.senderId
+                                val conversationId = peerId
+                                withContext(Dispatchers.IO) {
+                                    database.messageDao().upsert(
+                                        MessageEntity(
+                                            id = message.id,
+                                            senderId = peerId,
+                                            receiverId = message.receiverId,
+                                            type = message.type.name,
+                                            content = message.content,
+                                            createdAt = message.createdAt,
+                                            status = MessageDeliveryStatus.DELIVERED.name,
+                                            conversationId = conversationId
+                                        )
+                                    )
+                                    database.conversationDao().upsert(
+                                        com.blackoutlink.data.storage.ConversationEntity(
+                                            id = conversationId,
+                                            peerId = peerId,
+                                            title = peerId,
+                                            lastMessagePreview = message.content.take(120),
+                                            updatedAt = now,
+                                            unreadCount = 1
+                                        )
+                                    )
+                                }
+                                emitIncomingMessage(
+                                    id = message.id,
+                                    conversationId = conversationId,
+                                    senderId = peerId,
+                                    peerId = peerId,
+                                    content = message.content,
+                                    type = message.type.name,
+                                    createdAt = message.createdAt,
+                                    deliveryStatus = MessageDeliveryStatus.DELIVERED.name
+                                )
+                                emitChatConnectionState(
+                                    state = "connected",
+                                    latencyMs = 0,
+                                    sessionState = "active",
+                                    peerId = peerId,
+                                    encryptionEnabled = true
+                                )
+                                return@collect
+                            }
+                        }
+                    }
+
                     val message = MeshProtocol.decode(packet.payload)
                     val now = System.currentTimeMillis()
                     val peerId = normalizePeerId(packet.sourceAddress) ?: message.senderId
@@ -2112,6 +2578,13 @@ class BlackoutChannelCoordinator(
                         type = message.type.name,
                         createdAt = message.createdAt,
                         deliveryStatus = MessageDeliveryStatus.DELIVERED.name
+                    )
+                    emitChatConnectionState(
+                        state = "connected",
+                        latencyMs = 0,
+                        sessionState = "active",
+                        peerId = peerId,
+                        encryptionEnabled = false
                     )
                 } catch (_: Throwable) {
                     // Malformed or incompatible message — discard silently.

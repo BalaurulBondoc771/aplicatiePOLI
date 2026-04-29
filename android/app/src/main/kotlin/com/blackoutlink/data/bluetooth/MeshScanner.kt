@@ -13,4 +13,5 @@ interface MeshScanner {
     fun isBluetoothEnabled(): Boolean
     fun hasPermissions(): Boolean
     fun configurePowerProfile(lowPowerEnabled: Boolean, refreshIntervalMs: Long)
+    fun setLocalDisplayName(displayName: String?)
 }

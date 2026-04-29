@@ -69,6 +69,9 @@ class ChatController {
           connectionState: incomingState,
           latencyMs: (event['latencyMs'] as num?)?.toInt() ?? _state.latencyMs,
           sessionState: '${event['sessionState'] ?? _state.sessionState}',
+          encryptionEnabled: event['encryptionEnabled'] is bool
+              ? event['encryptionEnabled'] as bool
+              : _state.encryptionEnabled,
           session: nextSession,
           clearError: true,
         ),
@@ -383,6 +386,9 @@ class ChatController {
         return '$base Nu exista transport Bluetooth activ.';
       case 'transport_send_failed':
         return '$base Eroare la trimiterea prin Bluetooth.';
+      case 'e2e_handshake_failed':
+      case 'e2e_session_missing':
+        return '$base Sesiunea E2E nu este stabilita cu peer-ul.';
       case 'native_send_exception':
         return '$base Exceptie nativa Android.$suffix';
       case 'db_open_failed':

@@ -3,13 +3,14 @@ import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import 'offline_vector_tile_debug.dart';
 import 'offline_vector_tile_pipeline.dart';
 import 'poi_categories.dart';
 
 class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
-  HttpServer? _server;
   Database? _db;
   String? _activePath;
+  String? _activeTilesDir;
   OfflineVectorMapConfig? _activeConfig;
   late Map<String, String> _metadata;
   late List<String> _vectorLayers;
@@ -21,7 +22,7 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
       return null;
     }
 
-    if (_activePath == mbtilesPath && _server != null && _activeConfig != null) {
+    if (_activePath == mbtilesPath && _activeTilesDir != null && _activeConfig != null) {
       return _activeConfig;
     }
 
@@ -30,14 +31,9 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
     _db = sqlite3.open(mbtilesPath, mode: OpenMode.readOnly);
     _metadata = _readMetadata(_db!);
     _vectorLayers = _extractVectorLayerIds(_metadata['json']);
-
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    _server = server;
     _activePath = mbtilesPath;
-
-    server.listen((HttpRequest request) {
-      _handleRequest(request);
-    });
+    final tilesDir = await _materializeTiles(mbtilesPath, _db!);
+    _activeTilesDir = tilesDir.path;
 
     final bounds = _parseBounds(_metadata['bounds']);
     final centerLat = (bounds?.$2 ?? 45.8);
@@ -59,89 +55,96 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
 
   @override
   Future<void> dispose() async {
-    final server = _server;
-    _server = null;
-    if (server != null) {
-      await server.close(force: true);
-    }
     _db?.dispose();
     _db = null;
     _activePath = null;
+    _activeTilesDir = null;
     _activeConfig = null;
-  }
-
-  void _handleRequest(HttpRequest request) {
-    final response = request.response;
-    try {
-      final path = request.uri.path;
-      if (path == '/style.json') {
-        response.headers.contentType = ContentType('application', 'json', charset: 'utf-8');
-        response.write(_buildStyleJson());
-        response.close();
-        return;
-      }
-
-      final match = RegExp(r'^/tiles/(\d+)/(\d+)/(\d+)\.pbf$').firstMatch(path);
-      if (match == null) {
-        response.statusCode = HttpStatus.notFound;
-        response.close();
-        return;
-      }
-
-      final z = int.parse(match.group(1)!);
-      final x = int.parse(match.group(2)!);
-      final yXyz = int.parse(match.group(3)!);
-      final db = _db;
-      if (db == null) {
-        response.statusCode = HttpStatus.serviceUnavailable;
-        response.close();
-        return;
-      }
-
-      final tileData = _lookupTileData(db, z, x, yXyz);
-      if (tileData == null) {
-        response.statusCode = HttpStatus.notFound;
-        response.close();
-        return;
-      }
-
-      response.headers.set(HttpHeaders.contentTypeHeader, 'application/vnd.mapbox-vector-tile');
-      if (_isGzip(tileData)) {
-        response.headers.set(HttpHeaders.contentEncodingHeader, 'gzip');
-      }
-      response.add(tileData);
-      response.close();
-    } catch (_) {
-      response.statusCode = HttpStatus.internalServerError;
-      response.close();
-    }
   }
 
   bool _isGzip(List<int> data) {
     return data.length >= 2 && data[0] == 0x1f && data[1] == 0x8b;
   }
 
-  List<int>? _lookupTileData(Database db, int z, int x, int yXyz) {
+  List<int> _decodeIfGzip(List<int> data) {
+    if (!_isGzip(data)) {
+      return data;
+    }
+    try {
+      return gzip.decode(data);
+    } catch (_) {
+      return data;
+    }
+  }
+
+
+  Future<Directory> _materializeTiles(String mbtilesPath, Database db) async {
+    final root = Directory(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}blackout_tiles_${mbtilesPath.hashCode.abs()}',
+    );
+    final readyMarker = File('${root.path}${Platform.pathSeparator}.ready');
+    if (root.existsSync() && readyMarker.existsSync()) {
+      final markerValue = readyMarker.readAsStringSync().trim();
+      if (markerValue == mbtilesPath) {
+        final exportedCount = root
+            .listSync(recursive: true, followLinks: false)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.pbf'))
+            .length;
+        offlineTileDebugStats.value = offlineTileDebugStats.value.copyWith(
+          exportedTiles: exportedCount,
+          lastStatus: 'file-source-cached:${root.path}',
+        );
+        return root;
+      }
+    }
+
+    if (root.existsSync()) {
+      root.deleteSync(recursive: true);
+    }
+    root.createSync(recursive: true);
+
     final declaredScheme = (_metadata['scheme'] ?? '').toLowerCase();
-    final yTms = ((1 << z) - 1) - yXyz;
+    final rows = db.select(
+      'SELECT zoom_level, tile_column, tile_row, tile_data FROM tiles ORDER BY zoom_level, tile_column, tile_row',
+    );
 
-    List<int>? queryByRow(int row) {
-      final stmt = db.prepare(
-        'SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ? LIMIT 1',
+    int written = 0;
+    for (final row in rows) {
+      final int z = (row['zoom_level'] as num).toInt();
+      final int x = (row['tile_column'] as num).toInt();
+      final int tileRow = (row['tile_row'] as num).toInt();
+      final dynamic raw = row['tile_data'];
+      if (raw is! List<int>) {
+        continue;
+      }
+
+      final int maxIndex = (1 << z) - 1;
+      final int yXyz = declaredScheme == 'xyz' ? tileRow : (maxIndex - tileRow);
+      if (yXyz < 0 || yXyz > maxIndex) {
+        continue;
+      }
+
+      final dir = Directory(
+        '${root.path}${Platform.pathSeparator}$z${Platform.pathSeparator}$x',
       );
-      final result = stmt.select([z, x, row]);
-      stmt.dispose();
-      if (result.isEmpty) return null;
-      final data = result.first.columnAt(0);
-      return data is List<int> ? data : null;
+      if (!dir.existsSync()) {
+        dir.createSync(recursive: true);
+      }
+      final outFile = File('${dir.path}${Platform.pathSeparator}$yXyz.pbf');
+      outFile.writeAsBytesSync(_decodeIfGzip(raw), flush: false);
+      written += 1;
     }
 
-    if (declaredScheme == 'xyz') {
-      return queryByRow(yXyz) ?? queryByRow(yTms);
-    }
-
-    // Default to TMS (common in MBTiles), but keep XYZ fallback for portability.
-    return queryByRow(yTms) ?? queryByRow(yXyz);
+    readyMarker.writeAsStringSync(mbtilesPath, flush: true);
+    offlineTileDebugStats.value = offlineTileDebugStats.value.copyWith(
+      requests: written,
+      hits: written,
+      misses: 0,
+      exportedTiles: written,
+      lastStatus: 'file-source-ready:$written',
+    );
+    return root;
   }
 
   Map<String, String> _readMetadata(Database db) {
@@ -201,7 +204,12 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
   String _buildStyleJson() {
     final minZoom = _parseDouble(_metadata['minzoom'], fallback: 3);
     final maxZoom = _parseDouble(_metadata['maxzoom'], fallback: 12);
-    final tileUrl = 'http://127.0.0.1:${_server?.port ?? 0}/tiles/{z}/{x}/{y}.pbf';
+    final tilesDir = _activeTilesDir;
+    if (tilesDir == null || tilesDir.isEmpty) {
+      return json.encode({'version': 8, 'name': 'Blackout Offline', 'sources': {}, 'layers': const []});
+    }
+    final baseUri = Uri.directory(tilesDir);
+    final tileUrls = <String>['${baseUri.toString()}{z}/{x}/{y}.pbf'];
 
     final effectiveLayers = _vectorLayers.isEmpty
         ? const <String>[
@@ -222,7 +230,7 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
       {
         'id': 'background',
         'type': 'background',
-        'paint': {'background-color': '#ede9e0'},
+        'paint': {'background-color': '#0B1118'},
       },
     ];
 
@@ -238,9 +246,9 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
           'source': 'offline',
           'source-layer': 'multipolygons',
           'paint': {
-            'fill-color': '#d6d2c8',
-            'fill-outline-color': '#a29a89',
-            'fill-opacity': 0.96,
+            'fill-color': '#17222E',
+            'fill-outline-color': '#2D4258',
+            'fill-opacity': 0.95,
           },
         });
       }
@@ -252,7 +260,7 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
           'type': 'line',
           'source': 'offline',
           'source-layer': 'other_relations',
-          'paint': {'line-color': '#836f5a', 'line-width': 1.0, 'line-opacity': 0.72},
+          'paint': {'line-color': '#F7B21A', 'line-width': 1.2, 'line-opacity': 0.9},
         });
       }
 
@@ -264,9 +272,9 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
           'source': 'offline',
           'source-layer': 'multilinestrings',
           'paint': {
-            'line-color': '#a15f38',
-            'line-width': 1.3,
-            'line-opacity': 0.85,
+            'line-color': '#FF6A3D',
+            'line-width': 1.6,
+            'line-opacity': 0.95,
             'line-dasharray': [4.0, 2.0],
           },
         });
@@ -279,19 +287,19 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
           'source': 'offline',
           'source-layer': 'lines',
           'paint': {
-            'line-color': '#5b5f67',
+            'line-color': '#6FE3FF',
             'line-width': [
               'interpolate',
               ['linear'],
               ['zoom'],
               4,
-              0.6,
+              0.9,
               9,
-              1.3,
+              1.8,
               13,
-              2.4,
+              2.9,
             ],
-            'line-opacity': 0.92,
+            'line-opacity': 0.98,
           },
         });
       }
@@ -336,11 +344,11 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
     } else {
       // ── OpenMapTiles format fallback ─────────────────────────────────────
       const omtFills = {
-        'landcover': '#cad6bb', 'landuse': '#d8cfbf', 'park': '#bad6b1',
-        'water': '#7baed6', 'aeroway': '#d5d0c7', 'building': '#c9c0b4',
+        'landcover': '#203526', 'landuse': '#243528', 'park': '#1F4A33',
+        'water': '#113A5E', 'aeroway': '#2F3136', 'building': '#3A2E2A',
       };
       const omtLines = {
-        'waterway': '#5f96bf', 'boundary': '#9f5b35', 'transportation': '#575c65',
+        'waterway': '#49A6FF', 'boundary': '#F7B21A', 'transportation': '#8CE1FF',
       };
       const omtDrawOrder = [
         'landcover', 'landuse', 'park', 'water', 'aeroway',
@@ -384,10 +392,11 @@ class _OfflineVectorTilePipelineIo implements OfflineVectorTilePipeline {
       'sources': {
         'offline': {
           'type': 'vector',
+          // Always expose XYZ to renderer and translate internally for TMS packs.
           'scheme': 'xyz',
           'minzoom': minZoom.toInt(),
           'maxzoom': maxZoom.toInt(),
-          'tiles': [tileUrl],
+          'tiles': tileUrls,
         }
       },
       'layers': layers,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import 'dashboard/dashboard_controller.dart';
 import 'dashboard/dashboard_models.dart';
@@ -8,6 +8,8 @@ import 'features/offline_map/offline_vector_map_view.dart';
 import 'permissions/permissions_controller.dart';
 import 'permissions/permissions_state.dart';
 import 'quick_status_models.dart';
+import 'services/app_settings_service.dart';
+import 'widgets/app_bottom_nav.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -89,6 +91,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     color: DashboardPage.amber,
                     backgroundColor: Color(0xFF2A2E36),
                   ),
+                _topBar(),
                 Expanded(
                   child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
@@ -131,24 +134,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ],
                               ),
                             ),
-                          _header(state),
-                          if (state.permissionsMissing ||
-                              state.bluetoothDisabled ||
-                              state.staleData ||
-                              !state.batteryAvailable ||
-                              !state.locationAvailable ||
-                              state.signalState == 'standby')
-                            Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Text(
-                                _statusHint(state),
-                                style: const TextStyle(
-                                  color: Color(0xFFFFC266),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
+                          _header(),
                           const SizedBox(height: 18),
                           _systemHealthCard(state),
                           const SizedBox(height: 14),
@@ -163,8 +149,6 @@ class _DashboardPageState extends State<DashboardPage> {
                           _sectionLabel('MISSION CRITICAL ACTIONS'),
                           const SizedBox(height: 14),
                           _offlineButton(context, enabled: permissionState.canUseMeshActions),
-                          const SizedBox(height: 24),
-                          _batterySaverRow(state),
                           const SizedBox(height: 24),
                           _meshRadiusCard(state),
                           const SizedBox(height: 10),
@@ -219,60 +203,57 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
-  String _statusHint(DashboardState state) {
-    if (state.permissionsMissing) {
-      return 'Permissions missing - limited telemetry';
-    }
-    if (state.bluetoothDisabled) {
-      return 'Bluetooth disabled - mesh offline';
-    }
-    if (!state.batteryAvailable) {
-      return 'Battery reading unavailable - estimate degraded';
-    }
-    if (!state.locationAvailable) {
-      return 'Location unavailable - routing confidence reduced';
-    }
-    if (state.signalState == 'standby') {
-      return 'Signal standby - awaiting optimal peer coverage';
-    }
-    if (state.staleData) {
-      return 'Telemetry stale - awaiting updates';
-    }
-    return '';
-  }
-
-  Widget _header(DashboardState state) {
-    return Row(
-      children: [
-        Icon(Icons.signal_cellular_alt, color: DashboardPage.amber, size: 24),
-        const SizedBox(width: 8),
-        Expanded(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
+  Widget _topBar() {
+    return Container(
+      height: 82,
+      color: const Color(0xFF171A20),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          const Icon(Icons.navigation, color: DashboardPage.amber, size: 21),
+          const SizedBox(width: 8),
+          const Expanded(
             child: Text(
-              'MISSION_STATUS',
+              'BLACKOUT LINK',
               style: TextStyle(
                 color: DashboardPage.amber,
-                fontSize: 31,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.3,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
                 height: 1,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-        ),
-          Text(
-            '${state.batteryPercent}% BAT',
+          const SizedBox(width: 10),
+	      GestureDetector(
+	        onTap: () => Navigator.of(context).pushNamed(AppRoutes.settings),
+	        child: const Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 34),
+	      ),
+        ],
+      ),
+    );
+  }
+
+  Widget _header() {
+    final AppSettingsData localSettings = AppSettingsService.current.value;
+    final AppDeviceStatusProfile profile = localSettings.deviceStatusProfile;
+    return Row(
+      children: [
+        Icon(Icons.signal_cellular_alt, color: Color(profile.colorValue), size: 24),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '${localSettings.displayName} - ${profile.detail}',
             style: TextStyle(
-              color: DashboardPage.amber,
-              fontSize: 17,
+              color: Color(profile.colorValue),
+              fontSize: 12,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-              height: 1,
+              letterSpacing: 0.2,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );
@@ -551,68 +532,6 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _batterySaverRow(DashboardState state) {
-    return GestureDetector(
-      onTap: _controller.toggleBatterySaver,
-      child: Container(
-        height: 84,
-        color: _panelSoft,
-        padding: const EdgeInsets.symmetric(horizontal: 18),
-        child: Row(
-          children: [
-            Icon(Icons.battery_charging_full, color: DashboardPage.amber, size: 25),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'BATTERY SAVER',
-                    style: TextStyle(
-                      color: Color(0xFFE8EAEE),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 22,
-                      letterSpacing: 0.4,
-                      height: 1,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'EXTEND MESH UPTIME',
-                    style: TextStyle(
-                      color: Color(0xFF9EA3AD),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                      letterSpacing: 1,
-                      height: 1,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: 56,
-              height: 30,
-              color: state.batterySaverEnabled
-                  ? DashboardPage.amber
-                  : const Color(0xFF4A4D53),
-              padding: const EdgeInsets.all(4),
-              child: Align(
-                alignment: state.batterySaverEnabled ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(width: 18, height: 18, color: Colors.black),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _meshRadiusCard(DashboardState state) {
     return Container(
       height: 250,
@@ -620,6 +539,7 @@ class _DashboardPageState extends State<DashboardPage> {
       decoration: BoxDecoration(
         color: _panel,
       ),
+      clipBehavior: Clip.hardEdge,
       child: Stack(
         children: [
           Positioned.fill(
@@ -636,93 +556,107 @@ class _DashboardPageState extends State<DashboardPage> {
           Positioned(
             top: 16,
             left: 16,
-            child: Container(
-              height: 34,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              color: Colors.black,
-              child: Row(
-                children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: DashboardPage.amber,
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '${state.meshStats.nodesActive} NODES ACTIVE',
-                    style: const TextStyle(
-                      color: Color(0xFFF0F2F6),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            top: 16,
             right: 16,
-            child: Container(
-              height: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              color: Colors.black,
-              child: Row(
-                children: [
-                  Icon(
-                    _offlineMapDownloaded ? Icons.map : Icons.map_outlined,
-                    color: _offlineMapDownloaded ? DashboardPage.amber : const Color(0xFF8F939D),
-                    size: 14,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _offlineMapDownloaded ? 'MAP PACK READY' : 'MAP PACK MISSING',
-                    style: const TextStyle(
-                      color: Color(0xFFF0F2F6),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 10,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            left: 16,
-            bottom: 20,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                const Text(
-                  'CURRENT MESH RADIUS',
-                  style: TextStyle(
-                    color: Color(0xFFA3A8B1),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 10,
-                    letterSpacing: 3,
+                Expanded(
+                  child: Container(
+                    height: 34,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    color: const Color(0xDD000000),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: DashboardPage.amber,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${state.meshStats.nodesActive} NODES ACTIVE',
+                            style: const TextStyle(
+                              color: Color(0xFFF0F2F6),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              letterSpacing: 0.7,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 6),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${state.meshStats.meshRadiusKm.toStringAsFixed(1)} KM',
-                    style: const TextStyle(
-                      color: Color(0xFFF5F6F8),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 44,
-                      height: 1,
-                      letterSpacing: 0.5,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    height: 34,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    color: const Color(0xDD000000),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _offlineMapDownloaded ? Icons.map : Icons.map_outlined,
+                          color: _offlineMapDownloaded ? DashboardPage.amber : const Color(0xFF8F939D),
+                          size: 14,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _offlineMapDownloaded ? 'MAP PACK READY' : 'MAP PACK MISSING',
+                            style: const TextStyle(
+                              color: Color(0xFFF0F2F6),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 10,
+                              letterSpacing: 0.6,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ],
+            ),
+          ),
+          Positioned(
+            left: 16,
+            bottom: 14,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              color: const Color(0xCC000000),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'CURRENT MESH RADIUS',
+                    style: TextStyle(
+                      color: Color(0xFFA3A8B1),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 9,
+                      letterSpacing: 2.2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${state.meshStats.meshRadiusKm.toStringAsFixed(1)} KM',
+                    style: const TextStyle(
+                      color: Color(0xFFF5F6F8),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 26,
+                      height: 1,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -786,6 +720,7 @@ class _DashboardPageState extends State<DashboardPage> {
           badge: String.fromCharCode(65 + i),
           name: peer.name.toUpperCase(),
           status: '${peer.status.toUpperCase()} - ${peer.distanceMeters.toStringAsFixed(0)}M',
+          statusPreset: peer.statusPreset,
           color: peer.status.toLowerCase() == 'connected' ? _green : DashboardPage.amber,
         ),
       );
@@ -801,8 +736,12 @@ class _DashboardPageState extends State<DashboardPage> {
     required String badge,
     required String name,
     required String status,
+    String? statusPreset,
     required Color color,
   }) {
+    final String presetBadge = _peerPresetBadge(statusPreset);
+    final Color presetBg = _presetBadgeBackground(statusPreset);
+    final Color presetFg = _presetBadgeForeground(statusPreset);
     return Container(
       height: 86,
       width: double.infinity,
@@ -830,17 +769,41 @@ class _DashboardPageState extends State<DashboardPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    color: Color(0xFFF3F5F8),
-                    fontSize: 18,
-                    letterSpacing: 0.2,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          color: Color(0xFFF3F5F8),
+                          fontSize: 18,
+                          letterSpacing: 0.2,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: presetBg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: presetFg.withValues(alpha: 0.35)),
+                      ),
+                      child: Text(
+                        presetBadge,
+                        style: TextStyle(
+                          color: presetFg,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.9,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 5),
                 Text(
@@ -862,6 +825,54 @@ class _DashboardPageState extends State<DashboardPage> {
         ],
       ),
     );
+  }
+
+  String _peerPresetBadge(String? preset) {
+    if (preset == null || preset.trim().isEmpty) {
+      return 'UNKNOWN';
+    }
+    switch (preset.toUpperCase()) {
+      case 'FIELD READY':
+        return 'FIELD';
+      case 'OPEN BROADCAST':
+        return 'OPEN';
+      case 'EMERGENCY WATCH':
+        return 'WATCH';
+      case 'SILENT / INCOGNITO':
+        return 'SILENT';
+      default:
+        return preset.split('/').first.trim().toUpperCase();
+    }
+  }
+
+  Color _presetBadgeBackground(String? preset) {
+    switch ((preset ?? '').trim().toUpperCase()) {
+      case 'FIELD READY':
+        return const Color(0x1A33D17A);
+      case 'OPEN BROADCAST':
+        return const Color(0x1A36A4FF);
+      case 'EMERGENCY WATCH':
+        return const Color(0x1AEF4444);
+      case 'SILENT / INCOGNITO':
+        return const Color(0x1A9CA3AF);
+      default:
+        return const Color(0x3320242C);
+    }
+  }
+
+  Color _presetBadgeForeground(String? preset) {
+    switch ((preset ?? '').trim().toUpperCase()) {
+      case 'FIELD READY':
+        return const Color(0xFF33D17A);
+      case 'OPEN BROADCAST':
+        return const Color(0xFF36A4FF);
+      case 'EMERGENCY WATCH':
+        return const Color(0xFFEF4444);
+      case 'SILENT / INCOGNITO':
+        return const Color(0xFFD1D5DB);
+      default:
+        return DashboardPage.amber;
+    }
   }
 
   Widget _quickGrid(PermissionsState permissions) {
@@ -914,96 +925,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _bottomNav(BuildContext context) {
-    return Container(
-      height: 86,
-      color: const Color(0xFF12141A),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Expanded(child: _NavItem(icon: Icons.dashboard_outlined, label: 'DASHBOARD', active: true)),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.chat_outlined,
-              label: 'CHAT',
-              active: false,
-              onTap: () {
-                Navigator.of(context).pushReplacementNamed(AppRoutes.chat);
-              },
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.flash_on_outlined,
-              label: 'POWER',
-              active: false,
-              onTap: () {
-                Navigator.of(context).pushReplacementNamed(AppRoutes.power);
-              },
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.warning_amber_rounded,
-              label: 'SOS',
-              active: false,
-              onTap: () {
-                Navigator.of(context).pushReplacementNamed(AppRoutes.sos);
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.active,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 70,
-        decoration: BoxDecoration(
-          color: active ? DashboardPage.amber : Colors.transparent,
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: active ? Colors.black : const Color(0xFF737885),
-              size: 22,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: active ? Colors.black : const Color(0xFF737885),
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return const AppBottomNav(currentRoute: AppRoutes.dashboard);
   }
 }
 

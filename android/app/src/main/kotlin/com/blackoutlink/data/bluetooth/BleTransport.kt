@@ -62,6 +62,12 @@ class BleTransport(private val context: Context) {
 
     private var gattServer: BluetoothGattServer? = null
     private var advertiseCallback: AdvertiseCallback? = null
+    private var localDisplayName: String? = null
+    private var localStatusPresetCode: String = "SI"
+    private var localBatterySaverEnabled: Boolean = false
+    private var localMeshRoleCode: String = "R"
+    private var advertiseMode: Int = AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
+    private var txPowerLevel: Int = AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
 
     // Incoming packets received by the GATT server, including source BLE address.
     private val _incomingBytes = MutableSharedFlow<IncomingPacket>(extraBufferCapacity = 64)
@@ -106,22 +112,55 @@ class BleTransport(private val context: Context) {
 
     // ── BLE advertising ───────────────────────────────────────────────────────
 
+    fun configureIdentity(displayName: String?) {
+        localDisplayName = displayName?.trim()?.takeIf { it.isNotEmpty() }
+        val adapter = bluetoothAdapter ?: return
+        if (!adapter.isEnabled || localDisplayName == null) return
+        try {
+            adapter.name = localDisplayName
+        } catch (_: SecurityException) {
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun configureAdvertiseProfile(mode: Int, txPower: Int) {
+        advertiseMode = mode
+        txPowerLevel = txPower
+    }
+
+    fun configureStatusPresetMetadata(code: String) {
+        localStatusPresetCode = code.ifBlank { "SI" }
+    }
+
+    fun configurePeerMetadata(statusPresetCode: String, batterySaverEnabled: Boolean, meshRoleCode: String) {
+        localStatusPresetCode = statusPresetCode.ifBlank { "SI" }
+        localBatterySaverEnabled = batterySaverEnabled
+        localMeshRoleCode = meshRoleCode.ifBlank { "R" }
+    }
+
     fun startAdvertising() {
         val adapter = bluetoothAdapter ?: return
         if (!adapter.isEnabled || advertiseCallback != null) return
 
+        configureIdentity(localDisplayName)
+
         val advertiser = adapter.bluetoothLeAdvertiser ?: return
 
         val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .setAdvertiseMode(advertiseMode)
+            .setTxPowerLevel(txPowerLevel)
             .setConnectable(true)
             .setTimeout(0)
             .build()
 
         val data = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(MESH_SERVICE_UUID))
-            .setIncludeDeviceName(false)
+            .addServiceData(
+                ParcelUuid(MESH_SERVICE_UUID),
+                "$localStatusPresetCode|${if (localBatterySaverEnabled) 1 else 0}|$localMeshRoleCode"
+                    .toByteArray(Charsets.UTF_8)
+            )
+            .setIncludeDeviceName(true)
             .build()
 
         val cb = object : AdvertiseCallback() {

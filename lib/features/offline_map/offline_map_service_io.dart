@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'offline_map_service.dart';
@@ -47,9 +48,7 @@ class _IoOfflineMapService implements OfflineMapService {
   @override
   Future<MapPackInspection> downloadRomaniaPack({required void Function(double progress) onProgress}) async {
     if (_configuredUrl.contains('example.com')) {
-      throw const FileSystemException(
-        'Map URL is not configured. Build with --dart-define=ROMANIA_MAP_URL=https://.../romania.mbtiles',
-      );
+      return _copyBundledPack(onProgress: onProgress);
     }
 
     final File file = await _packFile();
@@ -86,6 +85,44 @@ class _IoOfflineMapService implements OfflineMapService {
     if (size <= 1024) {
       temp.deleteSync();
       throw const FileSystemException('Downloaded map pack is empty or corrupted.');
+    }
+
+    if (file.existsSync()) {
+      file.deleteSync();
+    }
+    temp.renameSync(file.path);
+
+    return MapPackInspection(
+      exists: true,
+      corrupted: false,
+      localPath: file.path,
+      fileSizeBytes: size,
+    );
+  }
+
+  Future<MapPackInspection> _copyBundledPack({required void Function(double progress) onProgress}) async {
+    final File file = await _packFile();
+    final File temp = File('${file.path}.part');
+    if (temp.existsSync()) {
+      temp.deleteSync();
+    }
+
+    try {
+      onProgress(0);
+      final ByteData data = await rootBundle.load('map-host/romania.mbtiles');
+      final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      await temp.writeAsBytes(bytes, flush: true);
+      onProgress(1);
+    } catch (_) {
+      throw const FileSystemException(
+        'Map pack is not bundled in app assets. Add map-host/romania.mbtiles in pubspec assets or set ROMANIA_MAP_URL.',
+      );
+    }
+
+    final int size = await temp.length();
+    if (size <= 1024) {
+      temp.deleteSync();
+      throw const FileSystemException('Bundled map pack is empty or corrupted.');
     }
 
     if (file.existsSync()) {

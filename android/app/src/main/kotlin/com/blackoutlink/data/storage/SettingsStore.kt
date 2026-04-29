@@ -20,6 +20,16 @@ class SettingsStore(context: Context) {
     private val _criticalTasksOnlyEnabled = MutableStateFlow(prefs.getBoolean(KEY_CRITICAL_TASKS_ONLY, false))
     val criticalTasksOnlyEnabled: StateFlow<Boolean> = _criticalTasksOnlyEnabled.asStateFlow()
 
+    fun getDisplayName(): String = prefs.getString(KEY_DISPLAY_NAME, "OPERATOR_X") ?: "OPERATOR_X"
+    fun setDisplayName(value: String) {
+        prefs.edit().putString(KEY_DISPLAY_NAME, value.ifBlank { "OPERATOR_X" }).apply()
+    }
+
+    fun getStatusPreset(): String = prefs.getString(KEY_STATUS_PRESET, "SILENT / INCOGNITO") ?: "SILENT / INCOGNITO"
+    fun setStatusPreset(value: String) {
+        prefs.edit().putString(KEY_STATUS_PRESET, value.ifBlank { "SILENT / INCOGNITO" }).apply()
+    }
+
     fun setBatterySaverEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_BATTERY_SAVER, enabled).apply()
         _batterySaverEnabled.value = enabled
@@ -55,10 +65,17 @@ class SettingsStore(context: Context) {
         prefs.edit().putInt(KEY_BATTERY_PERCENT_HINT, value.coerceIn(1, 100)).apply()
     }
 
-    fun setPendingQuickStatus(status: String, expiresAtMs: Long) {
+    fun isBackgroundBeaconEnabled(): Boolean = prefs.getBoolean(KEY_BACKGROUND_BEACON_ENABLED, true)
+
+    fun setBackgroundBeaconEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BACKGROUND_BEACON_ENABLED, enabled).apply()
+    }
+
+    fun setPendingQuickStatus(status: String, expiresAtMs: Long, deviceName: String? = null) {
         prefs.edit()
             .putString(KEY_PENDING_QUICK_STATUS, status)
             .putLong(KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS, expiresAtMs)
+            .putString(KEY_PENDING_QUICK_STATUS_DEVICE_NAME, deviceName)
             .apply()
     }
 
@@ -67,10 +84,14 @@ class SettingsStore(context: Context) {
     fun getPendingQuickStatusExpiresAtMs(): Long =
         prefs.getLong(KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS, 0L)
 
+    fun getPendingQuickStatusDeviceName(): String? =
+        prefs.getString(KEY_PENDING_QUICK_STATUS_DEVICE_NAME, null)
+
     fun clearPendingQuickStatus() {
         prefs.edit()
             .remove(KEY_PENDING_QUICK_STATUS)
             .remove(KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS)
+            .remove(KEY_PENDING_QUICK_STATUS_DEVICE_NAME)
             .apply()
     }
 
@@ -79,9 +100,13 @@ class SettingsStore(context: Context) {
         private const val KEY_LOW_POWER_BLUETOOTH = "low_power_bluetooth"
         private const val KEY_GRAYSCALE_UI = "grayscale_ui"
         private const val KEY_CRITICAL_TASKS_ONLY = "critical_tasks_only"
+        private const val KEY_DISPLAY_NAME = "display_name"
+        private const val KEY_STATUS_PRESET = "status_preset"
         private const val KEY_SCAN_INTERVAL_MS = "scan_interval_ms"
         private const val KEY_BATTERY_PERCENT_HINT = "battery_percent_hint"
+        private const val KEY_BACKGROUND_BEACON_ENABLED = "background_beacon_enabled"
         private const val KEY_PENDING_QUICK_STATUS = "pending_quick_status"
         private const val KEY_PENDING_QUICK_STATUS_EXPIRES_AT_MS = "pending_quick_status_expires_at_ms"
+        private const val KEY_PENDING_QUICK_STATUS_DEVICE_NAME = "pending_quick_status_device_name"
     }
 }

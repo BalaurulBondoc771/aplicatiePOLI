@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'app_routes.dart';
@@ -8,7 +8,9 @@ import 'chat/chat_state.dart';
 import 'permissions/permissions_controller.dart';
 import 'permissions/permissions_state.dart';
 import 'quick_status_models.dart';
+import 'services/app_settings_service.dart';
 import 'services/mesh_channel_service.dart';
+import 'widgets/app_bottom_nav.dart';
 
 class ChatPage extends StatefulWidget {
 	const ChatPage({super.key, this.initialArgs});
@@ -19,14 +21,24 @@ class ChatPage extends StatefulWidget {
 	State<ChatPage> createState() => _ChatPageState();
 }
 
+enum _ConversationSort {
+	date,
+	az,
+	za,
+}
+
 class _ChatPageState extends State<ChatPage> {
 	final ChatController _controller = ChatController();
 	final PermissionsController _permissionsController = PermissionsController(includeMicrophone: true);
-	final TextEditingController _filterController = TextEditingController();
+	final TextEditingController _searchController = TextEditingController();
 	final TextEditingController _messageController = TextEditingController();
+	final Map<String, Map<String, dynamic>> _peerMetadataById = <String, Map<String, dynamic>>{};
 	Timer? _statusTickTimer;
+	StreamSubscription<Map<String, dynamic>>? _peersSubscription;
 	bool _initialized = false;
-	String _filterText = '';
+	_ConversationSort _conversationSort = _ConversationSort.date;
+	bool _searchExpanded = false;
+	String _searchText = '';
 	String? _activePeerId;
 	String? _activePeerName;
 
@@ -43,6 +55,8 @@ class _ChatPageState extends State<ChatPage> {
 		_activePeerName = routeArgs?.peerName;
 		_controller.init(routeArgs);
 		_permissionsController.init();
+		_peersSubscription = MeshChannelService.peersUpdates.listen(_handlePeersUpdate);
+		_hydratePeerMetadata();
 		_statusTickTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
 			if (!mounted) return;
 			setState(() {});
@@ -52,7 +66,8 @@ class _ChatPageState extends State<ChatPage> {
 	@override
 	void dispose() {
 		_statusTickTimer?.cancel();
-		_filterController.dispose();
+		_peersSubscription?.cancel();
+		_searchController.dispose();
 		_messageController.dispose();
 		_permissionsController.dispose();
 		_controller.dispose();
@@ -76,26 +91,34 @@ class _ChatPageState extends State<ChatPage> {
 						final bool inConversation = currentPeerId?.trim().isNotEmpty == true;
 
 						// Group only actual chat messages; connection status has its own card.
+						// Quick status messages (STATUS:...) are excluded from the conversation list
+						// but still used by _latestQuickStatusForCurrentPeer for the status card.
 						final Map<String, List<ChatMessageDto>> byPeer = {};
 						for (final ChatMessageDto msg in viewState.messages) {
+							if (msg.content.startsWith('STATUS:')) continue;
 							final String? key = _peerKeyForMessage(msg);
 							if (key == null) continue;
 							byPeer.putIfAbsent(key, () => []).add(msg);
 						}
 
-						// Apply filter
-						Map<String, List<ChatMessageDto>> filtered = byPeer;
-						if (_filterText.isNotEmpty) {
-							final String q = _filterText.toUpperCase();
-							filtered = Map.fromEntries(
-								byPeer.entries.where((e) {
-									final String display = _displayNameForPeer(e.key, viewState).toUpperCase();
-									return display.contains(q) || e.key.toUpperCase().contains(q);
+						Map<String, List<ChatMessageDto>> visibleConversations = byPeer;
+						if (_searchText.trim().isNotEmpty) {
+							final query = _searchText.trim().toUpperCase();
+							visibleConversations = Map.fromEntries(
+								byPeer.entries.where((entry) {
+									final peerId = entry.key.toUpperCase();
+									final peerName = _displayNameForPeer(entry.key, viewState).toUpperCase();
+									final lastContent = entry.value.isNotEmpty
+										? entry.value.last.content.toUpperCase()
+										: '';
+									return peerId.contains(query) ||
+										peerName.contains(query) ||
+										lastContent.contains(query);
 								}),
 							);
 						}
 
-						final bool hasConversations = filtered.isNotEmpty;
+						final bool hasConversations = visibleConversations.isNotEmpty;
 
 						return Scaffold(
 							backgroundColor: _bg,
@@ -114,11 +137,12 @@ class _ChatPageState extends State<ChatPage> {
 												if (!permState.canUseMeshActions || !permState.canUseLocationActions)
 													_permissionBanner(permState),
 												if (!inConversation) ...[
+													if (_searchExpanded) _searchBarInline(),
 													_filterBar(),
 													_statusLinkCard(viewState),
 													Expanded(
 														child: hasConversations
-															? _conversationsList(viewState, filtered)
+															? _conversationsList(viewState, visibleConversations)
 															: _emptyState(),
 													),
 												] else ...[
@@ -158,8 +182,13 @@ class _ChatPageState extends State<ChatPage> {
 		final String title = inConversation
 			? _displayTitleForActivePeer(activePeerId, activePeerName, state)
 			: 'BLACKOUT LINK';
+		final String conversationStatusLabel = inConversation
+			? _statusDisplayLabel(_latestQuickStatusForPeer(state, activePeerId)?.statusLabel)
+			: '';
+		final Color conversationStatusColor = _quickStatusColor(conversationStatusLabel);
+
 		return Container(
-			height: 78,
+			height: inConversation ? 92 : 78,
 			color: const Color(0xFF0F1218),
 			padding: const EdgeInsets.symmetric(horizontal: 16),
 			child: Row(
@@ -181,27 +210,148 @@ class _ChatPageState extends State<ChatPage> {
 					),
 					const SizedBox(width: 8),
 					Expanded(
-						child: Text(
-							title.toUpperCase(),
-							maxLines: 1,
-							overflow: TextOverflow.ellipsis,
-							style: const TextStyle(
-								color: Color(0xFFF7B21A),
-								fontSize: 24,
-								fontWeight: FontWeight.w900,
-								letterSpacing: 0.5,
-								height: 1,
+						child: inConversation
+							? Column(
+								mainAxisAlignment: MainAxisAlignment.center,
+								crossAxisAlignment: CrossAxisAlignment.start,
+								children: [
+									Text(
+										title.toUpperCase(),
+										maxLines: 1,
+										overflow: TextOverflow.ellipsis,
+										style: const TextStyle(
+											color: Color(0xFFF7B21A),
+											fontSize: 24,
+											fontWeight: FontWeight.w900,
+											letterSpacing: 0.5,
+											height: 1,
+										),
+									),
+									const SizedBox(height: 6),
+									Row(
+										children: [
+											Container(
+												width: 9,
+												height: 9,
+												decoration: BoxDecoration(
+													color: conversationStatusColor,
+													shape: BoxShape.circle,
+												),
+											),
+											const SizedBox(width: 8),
+											Expanded(
+												child: Text(
+													conversationStatusLabel,
+													maxLines: 1,
+													overflow: TextOverflow.ellipsis,
+													style: const TextStyle(
+														color: Color(0xFFDCE0E6),
+														fontSize: 11,
+														fontWeight: FontWeight.w800,
+														letterSpacing: 1.0,
+													),
+												),
+											),
+										],
+									),
+								],
+							)
+							: Text(
+								title.toUpperCase(),
+								maxLines: 1,
+								overflow: TextOverflow.ellipsis,
+								style: const TextStyle(
+									color: Color(0xFFF7B21A),
+									fontSize: 24,
+									fontWeight: FontWeight.w900,
+									letterSpacing: 0.5,
+									height: 1,
+								),
 							),
-						),
 					),
 					const SizedBox(width: 8),
 					if (!inConversation) ...[
-						const Icon(Icons.search, color: Color(0xFFA8ADB8), size: 26),
+						GestureDetector(
+							onTap: () {
+								if (_searchExpanded) {
+									_collapseSearch();
+									return;
+								}
+								setState(() {
+									_searchExpanded = true;
+								});
+							},
+							child: Icon(
+								(_searchExpanded || _searchText.trim().isNotEmpty)
+									? Icons.search_off
+									: Icons.search,
+								color: (_searchExpanded || _searchText.trim().isNotEmpty)
+									? const Color(0xFFF7B21A)
+									: const Color(0xFFA8ADB8),
+								size: 26,
+							),
+						),
 						const SizedBox(width: 12),
-						const Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 26),
+						GestureDetector(
+							onTap: () => Navigator.of(context).pushNamed(AppRoutes.settings),
+							child: const Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 26),
+						),
 					] else ...[
 						const Icon(Icons.shield_outlined, color: Color(0xFFA8ADB8), size: 22),
 					],
+				],
+			),
+		);
+	}
+
+	void _collapseSearch() {
+		FocusManager.instance.primaryFocus?.unfocus();
+		if (!_searchExpanded && _searchText.isEmpty) return;
+		setState(() {
+			_searchExpanded = false;
+			_searchText = '';
+			_searchController.clear();
+		});
+	}
+
+	Widget _searchBarInline() {
+		return Container(
+			margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+			height: 56,
+			decoration: const BoxDecoration(
+				color: Color(0xFF171A20),
+				border: Border(left: BorderSide(color: Color(0xFFF7B21A), width: 3)),
+			),
+			child: Row(
+				children: [
+					const SizedBox(width: 16),
+					const Icon(Icons.search, color: Color(0xFFF7B21A), size: 20),
+					const SizedBox(width: 12),
+					Expanded(
+						child: TextField(
+							controller: _searchController,
+							autofocus: true,
+							onChanged: (value) => setState(() => _searchText = value),
+							onTapOutside: (_) => _collapseSearch(),
+							style: const TextStyle(
+								color: Color(0xFFE8EBF1),
+								fontSize: 13,
+								fontWeight: FontWeight.w700,
+								letterSpacing: 0.8,
+							),
+							decoration: const InputDecoration(
+								hintText: 'SEARCH CONVERSATIONS...',
+								hintStyle: TextStyle(
+									color: Color(0xFF7E838D),
+									fontSize: 13,
+									fontWeight: FontWeight.w700,
+									letterSpacing: 0.8,
+								),
+								border: InputBorder.none,
+								isDense: true,
+							),
+						),
+					),
 				],
 			),
 		);
@@ -249,32 +399,87 @@ class _ChatPageState extends State<ChatPage> {
 				color: Color(0xFF171A20),
 				border: Border(left: BorderSide(color: Color(0xFFF7B21A), width: 3)),
 			),
+			child: PopupMenuButton<_ConversationSort>(
+				initialValue: _conversationSort,
+				onSelected: (value) => setState(() => _conversationSort = value),
+				color: const Color(0xFF171A20),
+				itemBuilder: (context) => [
+					_sortMenuItem(_ConversationSort.az, 'A-Z'),
+					_sortMenuItem(_ConversationSort.za, 'Z-A'),
+					_sortMenuItem(_ConversationSort.date, 'Date'),
+				],
+				child: Padding(
+					padding: const EdgeInsets.symmetric(horizontal: 16),
+					child: Row(
+						children: [
+							const Icon(Icons.filter_list, color: Color(0xFFF7B21A), size: 20),
+							const SizedBox(width: 12),
+							Expanded(
+								child: Column(
+									mainAxisAlignment: MainAxisAlignment.center,
+									crossAxisAlignment: CrossAxisAlignment.start,
+									children: [
+										const Text(
+											'FILTERS',
+											style: TextStyle(
+												color: Color(0xFF6E7480),
+												fontSize: 10,
+												fontWeight: FontWeight.w800,
+												letterSpacing: 1.2,
+											),
+										),
+										const SizedBox(height: 2),
+										Text(
+											_filterLabel(),
+											style: const TextStyle(
+												color: Color(0xFFD5D8DE),
+												fontSize: 13,
+												fontWeight: FontWeight.w800,
+												letterSpacing: 0.8,
+											),
+											maxLines: 1,
+											overflow: TextOverflow.ellipsis,
+										),
+									],
+								),
+							),
+							const SizedBox(width: 8),
+							const Icon(Icons.keyboard_arrow_down, color: Color(0xFF737885), size: 22),
+						],
+					),
+				),
+			),
+		);
+	}
+
+	String _filterLabel() {
+		switch (_conversationSort) {
+			case _ConversationSort.az:
+				return 'A-Z';
+			case _ConversationSort.za:
+				return 'Z-A';
+			case _ConversationSort.date:
+				return 'DATE';
+		}
+	}
+
+	PopupMenuItem<_ConversationSort> _sortMenuItem(_ConversationSort value, String label) {
+		final bool selected = _conversationSort == value;
+		return PopupMenuItem<_ConversationSort>(
+			value: value,
 			child: Row(
 				children: [
-					const SizedBox(width: 16),
-					const Icon(Icons.filter_list, color: Color(0xFF737885), size: 20),
-					const SizedBox(width: 12),
-					Expanded(
-						child: TextField(
-							controller: _filterController,
-							onChanged: (v) => setState(() => _filterText = v),
-							style: const TextStyle(
-								color: Color(0xFFD5D8DE),
-								fontSize: 13,
-								fontWeight: FontWeight.w700,
-								letterSpacing: 1.0,
-							),
-							decoration: const InputDecoration(
-								hintText: 'FILTER BY NODE OR PRIORITY...',
-								hintStyle: TextStyle(
-									color: Color(0xFF5D616A),
-									fontSize: 13,
-									fontWeight: FontWeight.w700,
-									letterSpacing: 1.0,
-								),
-								border: InputBorder.none,
-								isDense: true,
-							),
+					Icon(
+						selected ? Icons.check : Icons.circle_outlined,
+						size: 16,
+						color: selected ? const Color(0xFFF7B21A) : const Color(0xFF6E7480),
+					),
+					const SizedBox(width: 8),
+					Text(
+						label,
+						style: TextStyle(
+							color: selected ? const Color(0xFFF7B21A) : const Color(0xFFD5D8DE),
+							fontWeight: FontWeight.w800,
 						),
 					),
 				],
@@ -283,74 +488,138 @@ class _ChatPageState extends State<ChatPage> {
 	}
 
 	Widget _statusLinkCard(ChatState state) {
-		final String deviceLabel = _displayNameForPeer(state.session.peerId ?? 'ACTIVE_DEVICE', state);
+		final String deviceLabel = state.session.peerId?.trim().isNotEmpty == true
+			? _displayNameForPeer(state.session.peerId!, state)
+			: AppSettingsService.current.value.displayName;
 		final bool linked = state.connectionState.toLowerCase() == 'connected';
 		final String stateLabel = linked ? 'ACTIVE' : 'STANDBY';
 		final String linkLabel = linked ? 'LINK ESTABLISHED' : 'LINK PENDING';
+		final QuickStatusPayload? quickStatus = _latestQuickStatusForCurrentPeer(state);
+		final String quickStatusLabel = _statusDisplayLabel(quickStatus?.statusLabel);
+		final Color quickStatusColor = _quickStatusColor(quickStatusLabel);
 
 		return Container(
 			margin: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-			height: 80,
+			height: 104,
 			decoration: const BoxDecoration(
 				color: Color(0xFF171A20),
 				border: Border(left: BorderSide(color: Color(0xFFF7B21A), width: 3)),
 			),
 			child: Padding(
-				padding: const EdgeInsets.symmetric(horizontal: 14),
-				child: Row(
+				padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+				child: Column(
+					mainAxisAlignment: MainAxisAlignment.center,
+					children: [
+						Row(
 					children: [
 						const Icon(Icons.wifi_tethering, color: Color(0xFFF7B21A), size: 18),
 						const SizedBox(width: 10),
 						Expanded(
-							child: RichText(
-								maxLines: 1,
-								overflow: TextOverflow.ellipsis,
-								text: TextSpan(
-									children: [
-										TextSpan(
-											text: '${deviceLabel.toUpperCase()} - ',
-											style: const TextStyle(
-												color: Color(0xFFEFF1F5),
-												fontSize: 17,
-												fontWeight: FontWeight.w900,
-												letterSpacing: 0.3,
-											),
+							child: Align(
+								alignment: Alignment.centerLeft,
+								child: FittedBox(
+									fit: BoxFit.scaleDown,
+									alignment: Alignment.centerLeft,
+									child: RichText(
+										maxLines: 1,
+										text: TextSpan(
+											children: [
+												TextSpan(
+													text: '${deviceLabel.toUpperCase()} - ',
+													style: const TextStyle(
+														color: Color(0xFFEFF1F5),
+														fontSize: 17,
+														fontWeight: FontWeight.w900,
+														letterSpacing: 0.3,
+													),
+												),
+												TextSpan(
+													text: stateLabel,
+													style: const TextStyle(
+														color: Color(0xFFF7B21A),
+														fontSize: 17,
+														fontWeight: FontWeight.w900,
+														letterSpacing: 1.0,
+													),
+												),
+											],
 										),
-										TextSpan(
-											text: stateLabel,
-											style: const TextStyle(
-												color: Color(0xFFF7B21A),
-												fontSize: 17,
-												fontWeight: FontWeight.w900,
-												letterSpacing: 1.0,
-											),
-										),
-									],
+									),
 								),
 							),
 						),
 						const SizedBox(width: 10),
-						Container(
-							width: 14,
-							height: 14,
-							decoration: BoxDecoration(
-								color: linked ? const Color(0xFFB68118) : const Color(0xFF50545E),
-								borderRadius: BorderRadius.circular(7),
+						SizedBox(
+							width: 126,
+							child: Row(
+								children: [
+									Container(
+										width: 14,
+										height: 14,
+										decoration: BoxDecoration(
+											color: linked ? const Color(0xFFB68118) : const Color(0xFF50545E),
+											borderRadius: BorderRadius.circular(7),
+										),
+									),
+									const SizedBox(width: 8),
+									Expanded(
+										child: FittedBox(
+											fit: BoxFit.scaleDown,
+											alignment: Alignment.centerLeft,
+											child: Text(
+												linkLabel,
+												style: const TextStyle(
+													color: Color(0xFF7E838D),
+													fontSize: 11,
+													fontWeight: FontWeight.w800,
+													letterSpacing: 0.8,
+												),
+											),
+										),
+									),
+								],
 							),
 						),
-						const SizedBox(width: 8),
-						Flexible(
-							child: Text(
-								linkLabel,
-								style: const TextStyle(
-									color: Color(0xFF7E838D),
-									fontSize: 11,
-									fontWeight: FontWeight.w800,
-									letterSpacing: 0.8,
+					],
+						),
+						const SizedBox(height: 10),
+						Row(
+							children: [
+								const Icon(Icons.fiber_manual_record, color: Color(0xFF616673), size: 10),
+								const SizedBox(width: 10),
+								const Text(
+									'STATUS:',
+									style: TextStyle(
+										color: Color(0xFF7E838D),
+										fontSize: 10,
+										fontWeight: FontWeight.w800,
+										letterSpacing: 1.1,
+									),
 								),
-								maxLines: 1,
-								overflow: TextOverflow.ellipsis,
-							),
+								const SizedBox(width: 8),
+								Container(
+									width: 10,
+									height: 10,
+									decoration: BoxDecoration(
+										color: quickStatusColor,
+										shape: BoxShape.circle,
+									),
+								),
+								const SizedBox(width: 8),
+								Expanded(
+									child: Text(
+										quickStatusLabel,
+										maxLines: 1,
+										overflow: TextOverflow.ellipsis,
+										style: const TextStyle(
+											color: Color(0xFFE2E5EA),
+											fontSize: 12,
+											fontWeight: FontWeight.w900,
+											letterSpacing: 0.9,
+										),
+									),
+								),
+							],
 						),
 					],
 				),
@@ -358,13 +627,77 @@ class _ChatPageState extends State<ChatPage> {
 		);
 	}
 
+	QuickStatusPayload? _latestQuickStatusForCurrentPeer(ChatState state) {
+		return _latestQuickStatusForPeer(state, state.session.peerId);
+	}
+
+	QuickStatusPayload? _latestQuickStatusForPeer(ChatState state, String? peerId) {
+		final String? normalizedPeer = peerId == null ? null : _normalizePeerKey(peerId);
+
+		for (int i = state.messages.length - 1; i >= 0; i--) {
+			final ChatMessageDto msg = state.messages[i];
+			final QuickStatusPayload? status = QuickStatusPayload.fromMessageContent(msg.content);
+			if (status == null) continue;
+			if (normalizedPeer == null) {
+				return status;
+			}
+			final String? peer = _peerKeyForMessage(msg);
+			if (peer == null) continue;
+			if (_normalizePeerKey(peer) == normalizedPeer) {
+				return status;
+			}
+		}
+
+		return null;
+	}
+
+	String _statusDisplayLabel(String? rawLabel) {
+		if (rawLabel == null || rawLabel.trim().isEmpty) {
+			return 'NO STATUS';
+		}
+		if (rawLabel.toUpperCase() == 'ON MY WAY') {
+			return 'EN ROUTE';
+		}
+		return rawLabel;
+	}
+
+	Color _quickStatusColor(String label) {
+		switch (label.toUpperCase()) {
+			case 'I AM SAFE':
+				return const Color(0xFF36D26A);
+			case 'NEED HELP':
+				return const Color(0xFFE43A3A);
+			case 'ON MY WAY':
+			case 'EN ROUTE':
+				return const Color(0xFF41A5FF);
+			case 'LOW BATTERY':
+				return const Color(0xFFF7B21A);
+			default:
+				return const Color(0xFF6B7280);
+		}
+	}
+
 	Widget _conversationsList(ChatState state, Map<String, List<ChatMessageDto>> byPeer) {
 		final List<MapEntry<String, List<ChatMessageDto>>> entries = byPeer.entries.toList();
-		entries.sort((a, b) {
-			final int aTime = a.value.isNotEmpty ? a.value.last.createdAtMs : 0;
-			final int bTime = b.value.isNotEmpty ? b.value.last.createdAtMs : 0;
-			return bTime.compareTo(aTime);
-		});
+		switch (_conversationSort) {
+			case _ConversationSort.az:
+				entries.sort((a, b) => _displayNameForPeer(a.key, state).toUpperCase().compareTo(
+					_displayNameForPeer(b.key, state).toUpperCase(),
+				));
+				break;
+			case _ConversationSort.za:
+				entries.sort((a, b) => _displayNameForPeer(b.key, state).toUpperCase().compareTo(
+					_displayNameForPeer(a.key, state).toUpperCase(),
+				));
+				break;
+			case _ConversationSort.date:
+				entries.sort((a, b) {
+					final int aTime = a.value.isNotEmpty ? a.value.last.createdAtMs : 0;
+					final int bTime = b.value.isNotEmpty ? b.value.last.createdAtMs : 0;
+					return bTime.compareTo(aTime);
+				});
+				break;
+		}
 
 		return ListView(
 			padding: const EdgeInsets.fromLTRB(0, 20, 0, 120),
@@ -387,15 +720,19 @@ class _ChatPageState extends State<ChatPage> {
 					final List<ChatMessageDto> msgs = entry.value;
 					final ChatMessageDto? lastMsg = msgs.isNotEmpty ? msgs.last : null;
 					final bool isActive = _samePeerIdentifier(state.session.peerId, peerId) && state.session.connected;
-					final String? badge = isActive ? 'ENCRYPTED' : null;
+					final String? badge = (isActive && state.encryptionEnabled) ? 'ENCRYPTED' : null;
 					final String signalLabel = _signalLabel(state.connectionState);
 					final String displayName = _displayNameForPeer(peerId, state);
+					final Map<String, dynamic>? peerMeta = _metadataForPeer(peerId);
 					return GestureDetector(
 						onTap: () => _openConversation(peerId: peerId, peerName: displayName),
 						behavior: HitTestBehavior.opaque,
 						child: _conversationCard(
 							title: displayName,
 							badge: badge,
+							statusPreset: peerMeta?['statusPreset']?.toString(),
+							batterySaverEnabled: peerMeta?['batterySaverEnabled'] as bool?,
+							meshRole: peerMeta?['meshRole']?.toString(),
 							lastMessage: _messagePreview(lastMsg),
 							lastMessageTimeMs: lastMsg?.createdAtMs,
 							signalStrength: signalLabel,
@@ -423,6 +760,7 @@ class _ChatPageState extends State<ChatPage> {
 		final String normalizedActivePeer = _normalizePeerKey(activePeerId);
 		final List<ChatMessageDto> thread = <ChatMessageDto>[];
 		for (final ChatMessageDto msg in messages) {
+			if (msg.content.startsWith('STATUS:')) continue;
 			final String? messagePeer = _peerKeyForMessage(msg);
 			if (messagePeer != null && _normalizePeerKey(messagePeer) == normalizedActivePeer) {
 				thread.add(msg);
@@ -634,12 +972,12 @@ class _ChatPageState extends State<ChatPage> {
 			return msg.content;
 		}
 		final String state = status.isExpired ? 'STANDBY' : 'ACTIVE ${status.remainingLabel}';
-		return 'STATUS ${status.statusLabel} • ${status.deviceName} • $state';
+		return 'STATUS ${status.statusLabel} | ${status.deviceName} | $state';
 	}
 
 	String _displayNameForPeer(String peerId, ChatState state) {
 		if (peerId == 'LOCAL_USER') {
-			return 'THIS DEVICE';
+			return AppSettingsService.current.value.displayName;
 		}
 		if (_isMacLikePeerId(peerId)) {
 			final String nodeLabel = _compactNodeLabel(peerId);
@@ -707,12 +1045,22 @@ class _ChatPageState extends State<ChatPage> {
 	Widget _conversationCard({
 		required String title,
 		String? badge,
+		String? statusPreset,
+		bool? batterySaverEnabled,
+		String? meshRole,
 		String? lastMessage,
 		int? lastMessageTimeMs,
 		String? signalStrength,
 	}) {
 		final String timeLabel = lastMessageTimeMs != null ? _formatTime(lastMessageTimeMs) : '';
 		final String preview = lastMessage != null ? lastMessage.toUpperCase() : '';
+		final String presetLabel = _peerPresetBadge(statusPreset);
+		final Color presetBg = _presetBadgeBackground(statusPreset);
+		final Color presetFg = _presetBadgeForeground(statusPreset);
+		final String metadataLabel = _peerMetadataLine(
+			batterySaverEnabled: batterySaverEnabled,
+			meshRole: meshRole,
+		);
 
 		return Column(
 			children: [
@@ -766,6 +1114,23 @@ class _ChatPageState extends State<ChatPage> {
 														),
 													],
 													const SizedBox(width: 8),
+													Container(
+														padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+														decoration: BoxDecoration(
+															color: presetBg,
+															border: Border.all(color: presetFg.withValues(alpha: 0.4)),
+														),
+														child: Text(
+															presetLabel,
+															style: TextStyle(
+																color: presetFg,
+																fontSize: 10,
+																fontWeight: FontWeight.w800,
+																letterSpacing: 0.8,
+															),
+														),
+													),
+													const SizedBox(width: 8),
 													Text(
 														timeLabel,
 														style: const TextStyle(
@@ -805,6 +1170,20 @@ class _ChatPageState extends State<ChatPage> {
 															),
 														),
 													],
+												),
+											],
+											if (metadataLabel.isNotEmpty) ...[
+												const SizedBox(height: 6),
+												Text(
+													metadataLabel,
+													style: const TextStyle(
+														color: Color(0xFF7F8692),
+														fontSize: 10,
+														fontWeight: FontWeight.w700,
+														letterSpacing: 0.8,
+													),
+													maxLines: 1,
+													overflow: TextOverflow.ellipsis,
 												),
 											],
 										],
@@ -987,6 +1366,16 @@ class _ChatPageState extends State<ChatPage> {
 													final String distanceLabel = distance == null
 														? 'DISTANCE: CALCULATING'
 														: 'DISTANCE: ~${distance.toStringAsFixed(0)}M';
+															final String? statusPreset = peer['statusPreset']?.toString();
+															final bool? batterySaverEnabled = peer['batterySaverEnabled'] as bool?;
+															final String? meshRole = peer['meshRole']?.toString();
+															final String presetLabel = _peerPresetBadge(statusPreset);
+															final Color presetBg = _presetBadgeBackground(statusPreset);
+															final Color presetFg = _presetBadgeForeground(statusPreset);
+															final String peerMeta = _peerMetadataLine(
+																batterySaverEnabled: batterySaverEnabled,
+																meshRole: meshRole,
+															);
 
 													return InkWell(
 														onTap: () => Navigator.of(dialogContext).pop(peer),
@@ -1029,6 +1418,20 @@ class _ChatPageState extends State<ChatPage> {
 																						letterSpacing: 0.8,
 																					),
 																				),
+																																						if (peerMeta.isNotEmpty)
+																																							Padding(
+																																								padding: const EdgeInsets.only(top: 4),
+																																								child: Text(
+																																									peerMeta,
+																																									maxLines: 1,
+																																									overflow: TextOverflow.ellipsis,
+																																									style: const TextStyle(
+																																										color: Color(0xFF7F8692),
+																																										fontSize: 10,
+																																										fontWeight: FontWeight.w700,
+																																									),
+																																								),
+																																							),
 																				if (id.isNotEmpty)
 																					Text(
 																						id,
@@ -1042,19 +1445,41 @@ class _ChatPageState extends State<ChatPage> {
 																	],
 																),
 															),
-															Container(
-																padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-																color: const Color(0xFF3B3324),
-																child: Text(
-																	signal,
-																	style: const TextStyle(
-																		color: Color(0xFFF7B21A),
-																		fontSize: 11,
-																		fontWeight: FontWeight.w800,
-																		letterSpacing: 1,
-																	),
-																),
-															),
+																																			Column(
+																																				crossAxisAlignment: CrossAxisAlignment.end,
+																																				children: [
+																																					Container(
+																																						padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+																																						color: const Color(0xFF3B3324),
+																																						child: Text(
+																																							signal,
+																																							style: const TextStyle(
+																																								color: Color(0xFFF7B21A),
+																																								fontSize: 11,
+																																								fontWeight: FontWeight.w800,
+																																								letterSpacing: 1,
+																																							),
+																																						),
+																																					),
+																																					const SizedBox(height: 6),
+																																					Container(
+																																						padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+																																						decoration: BoxDecoration(
+																																							color: presetBg,
+																																							border: Border.all(color: presetFg.withValues(alpha: 0.4)),
+																																						),
+																																						child: Text(
+																																							presetLabel,
+																																							style: TextStyle(
+																																								color: presetFg,
+																																								fontSize: 10,
+																																								fontWeight: FontWeight.w800,
+																																								letterSpacing: 0.8,
+																																							),
+																																						),
+																																					),
+																																				],
+																																			),
 														],
 														),
 													),
@@ -1135,6 +1560,106 @@ class _ChatPageState extends State<ChatPage> {
 		return peers;
 	}
 
+	Future<void> _hydratePeerMetadata() async {
+		try {
+			final Map<String, dynamic> result = await MeshChannelService.getRecentPeers(limit: 64);
+			if (!mounted) return;
+			_handlePeersUpdate(result);
+		} catch (_) {
+			// Ignore metadata bootstrap failures; live updates can still populate state.
+		}
+	}
+
+	void _handlePeersUpdate(Map<String, dynamic> event) {
+		final List<Map<String, dynamic>> peers = _parsePeers(event);
+		if (peers.isEmpty) return;
+		bool changed = false;
+		for (final Map<String, dynamic> peer in peers) {
+			final String id = _normalizePeerKey('${peer['id'] ?? ''}');
+			if (id.isEmpty) continue;
+			final Map<String, dynamic> existing = _peerMetadataById[id] ?? const <String, dynamic>{};
+			final Map<String, dynamic> next = <String, dynamic>{
+				'statusPreset': peer['statusPreset']?.toString(),
+				'batterySaverEnabled': peer['batterySaverEnabled'] as bool?,
+				'meshRole': peer['meshRole']?.toString(),
+			};
+			if (existing['statusPreset'] != next['statusPreset'] ||
+				existing['batterySaverEnabled'] != next['batterySaverEnabled'] ||
+				existing['meshRole'] != next['meshRole']) {
+				_peerMetadataById[id] = next;
+				changed = true;
+			}
+		}
+		if (changed && mounted) {
+			setState(() {});
+		}
+	}
+
+	Map<String, dynamic>? _metadataForPeer(String peerId) {
+		final String key = _normalizePeerKey(peerId);
+		if (key.isEmpty) return null;
+		return _peerMetadataById[key];
+	}
+
+	String _peerPresetBadge(String? preset) {
+		if (preset == null || preset.trim().isEmpty) {
+			return 'UNKNOWN';
+		}
+		switch (preset.toUpperCase()) {
+			case 'FIELD READY':
+				return 'FIELD';
+			case 'OPEN BROADCAST':
+				return 'OPEN';
+			case 'EMERGENCY WATCH':
+				return 'WATCH';
+			case 'SILENT / INCOGNITO':
+				return 'SILENT';
+			default:
+				return preset.split('/').first.trim().toUpperCase();
+		}
+	}
+
+	Color _presetBadgeBackground(String? preset) {
+		switch ((preset ?? '').trim().toUpperCase()) {
+			case 'FIELD READY':
+				return const Color(0x1A33D17A);
+			case 'OPEN BROADCAST':
+				return const Color(0x1A36A4FF);
+			case 'EMERGENCY WATCH':
+				return const Color(0x1AEF4444);
+			case 'SILENT / INCOGNITO':
+				return const Color(0x1A9CA3AF);
+			default:
+				return const Color(0x3320242C);
+		}
+	}
+
+	Color _presetBadgeForeground(String? preset) {
+		switch ((preset ?? '').trim().toUpperCase()) {
+			case 'FIELD READY':
+				return const Color(0xFF33D17A);
+			case 'OPEN BROADCAST':
+				return const Color(0xFF36A4FF);
+			case 'EMERGENCY WATCH':
+				return const Color(0xFFEF4444);
+			case 'SILENT / INCOGNITO':
+				return const Color(0xFFD1D5DB);
+			default:
+				return _amber;
+		}
+	}
+
+	String _peerMetadataLine({bool? batterySaverEnabled, String? meshRole}) {
+		final String? role = (meshRole ?? '').trim().isEmpty ? null : meshRole!.trim().toUpperCase();
+		final String? saver = batterySaverEnabled == null
+			? null
+			: (batterySaverEnabled ? 'BATTERY SAVER ON' : 'BATTERY SAVER OFF');
+		if (role != null && saver != null) {
+			return '$role | $saver';
+		}
+		return role ?? saver ?? '';
+	}
+
 	String _signalLabel(String connectionState) {
 		switch (connectionState.toLowerCase()) {
 			case 'connected':
@@ -1165,87 +1690,6 @@ class _ChatPageState extends State<ChatPage> {
 	}
 
 	Widget _bottomNav(BuildContext context) {
-		return Container(
-			height: 86,
-			color: const Color(0xFF090B10),
-			padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
-			child: Row(
-				mainAxisAlignment: MainAxisAlignment.spaceBetween,
-				children: [
-					Expanded(
-						child: _NavItem(
-							icon: Icons.grid_view,
-							label: 'DASHBOARD',
-							active: false,
-							onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard),
-						),
-					),
-					const Expanded(child: _NavItem(icon: Icons.chat, label: 'CHAT', active: true)),
-					Expanded(
-						child: _NavItem(
-							icon: Icons.flash_on,
-							label: 'POWER',
-							active: false,
-							onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.power),
-						),
-					),
-					Expanded(
-						child: _NavItem(
-							icon: Icons.warning,
-							label: 'SOS',
-							active: false,
-							onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.sos),
-						),
-					),
-				],
-			),
-		);
-	}
-}
-
-class _NavItem extends StatelessWidget {
-	const _NavItem({
-		required this.icon,
-		required this.label,
-		required this.active,
-		this.onTap,
-	});
-
-	final IconData icon;
-	final String label;
-	final bool active;
-	final VoidCallback? onTap;
-
-	@override
-	Widget build(BuildContext context) {
-		return GestureDetector(
-			onTap: onTap,
-			behavior: HitTestBehavior.opaque,
-			child: Container(
-				padding: const EdgeInsets.symmetric(vertical: 2),
-				decoration: BoxDecoration(
-					color: active ? const Color(0xFFF7B21A) : Colors.transparent,
-					borderRadius: BorderRadius.circular(4),
-				),
-				child: Column(
-					mainAxisAlignment: MainAxisAlignment.center,
-					children: [
-						Icon(icon, color: active ? Colors.black : const Color(0xFF737885), size: 21),
-						const SizedBox(height: 4),
-						Text(
-							label,
-							style: TextStyle(
-								color: active ? Colors.black : const Color(0xFF737885),
-								fontSize: 11,
-								fontWeight: FontWeight.w800,
-								letterSpacing: 0.7,
-							),
-							maxLines: 1,
-							overflow: TextOverflow.ellipsis,
-						),
-					],
-				),
-			),
-		);
+		return const AppBottomNav(currentRoute: AppRoutes.chat);
 	}
 }

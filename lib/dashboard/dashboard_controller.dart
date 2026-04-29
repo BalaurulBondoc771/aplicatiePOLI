@@ -3,6 +3,7 @@ import 'dart:async';
 import '../app_routes.dart';
 import '../chat/chat_session_dto.dart';
 import '../quick_status_models.dart';
+import '../services/app_settings_service.dart';
 import '../services/chat_channel_service.dart';
 import '../services/mesh_channel_service.dart';
 import '../services/power_channel_service.dart';
@@ -119,8 +120,12 @@ class DashboardController {
   }
 
   Future<BroadcastResultDto> broadcastQuickStatus(QuickStatusType status) async {
+    final AppSettingsData appSettings = await AppSettingsService.load();
     final Map<String, dynamic> result =
-        await ChatChannelService.broadcastQuickStatus(status: status.wireValue);
+        await ChatChannelService.broadcastQuickStatus(
+          status: status.wireValue,
+          displayName: appSettings.displayName,
+        );
     if (status == QuickStatusType.needHelp) {
       await SosChannelService.triggerSos(
         latitude: 34.0522,

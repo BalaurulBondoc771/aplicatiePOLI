@@ -2,11 +2,19 @@ package com.blackoutlink.data.security
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 data class EncryptedPayload(
     val iv: ByteArray,
@@ -19,6 +27,11 @@ class CryptoManager : PayloadCrypto {
     }.getOrNull()
     private val alias = "blackout_link_aes_key"
     private var fallbackKey: SecretKey? = null
+    private val identityKeyPair: KeyPair by lazy {
+        val generator = KeyPairGenerator.getInstance("EC")
+        generator.initialize(ECGenParameterSpec("secp256r1"))
+        generator.generateKeyPair()
+    }
 
     private fun getOrCreateKey(): SecretKey {
         val ks = keyStore
@@ -60,6 +73,38 @@ class CryptoManager : PayloadCrypto {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val spec = GCMParameterSpec(128, payload.iv)
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), spec)
+        return cipher.doFinal(payload.cipherText)
+    }
+
+    fun getIdentityPublicKeyEncoded(): ByteArray {
+        return identityKeyPair.public.encoded
+    }
+
+    fun deriveSessionKey(peerPublicKeyEncoded: ByteArray): ByteArray {
+        val keyFactory = KeyFactory.getInstance("EC")
+        val peerPublicKey = keyFactory.generatePublic(X509EncodedKeySpec(peerPublicKeyEncoded))
+        val agreement = KeyAgreement.getInstance("ECDH")
+        agreement.init(identityKeyPair.private)
+        agreement.doPhase(peerPublicKey, true)
+        val sharedSecret = agreement.generateSecret()
+        return MessageDigest.getInstance("SHA-256").digest(sharedSecret)
+    }
+
+    fun encryptWithSessionKey(plainText: ByteArray, sessionKey: ByteArray): EncryptedPayload {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val key = SecretKeySpec(sessionKey.copyOf(32), "AES")
+        cipher.init(Cipher.ENCRYPT_MODE, key)
+        return EncryptedPayload(
+            iv = cipher.iv,
+            cipherText = cipher.doFinal(plainText)
+        )
+    }
+
+    fun decryptWithSessionKey(payload: EncryptedPayload, sessionKey: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val key = SecretKeySpec(sessionKey.copyOf(32), "AES")
+        val spec = GCMParameterSpec(128, payload.iv)
+        cipher.init(Cipher.DECRYPT_MODE, key, spec)
         return cipher.doFinal(payload.cipherText)
     }
 }

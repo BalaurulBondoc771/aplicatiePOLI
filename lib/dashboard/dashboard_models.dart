@@ -14,6 +14,9 @@ class PeerDto {
     required this.rssi,
     required this.distanceMeters,
     required this.lastSeenMs,
+    this.statusPreset,
+    this.batterySaverEnabled,
+    this.meshRole,
   });
 
   final String id;
@@ -22,6 +25,9 @@ class PeerDto {
   final int rssi;
   final double distanceMeters;
   final int lastSeenMs;
+  final String? statusPreset;
+  final bool? batterySaverEnabled;
+  final String? meshRole;
 
   factory PeerDto.fromMap(Map<String, dynamic> map) {
     final dynamic rawDistance = map['distanceMeters'];
@@ -38,6 +44,11 @@ class PeerDto {
       rssi: rssi,
       distanceMeters: distanceMeters,
       lastSeenMs: map['lastSeenMs'] is int ? map['lastSeenMs'] as int : DateTime.now().millisecondsSinceEpoch,
+      statusPreset: map['statusPreset'] != null ? '${map['statusPreset']}' : null,
+      batterySaverEnabled: map['batterySaverEnabled'] is bool
+          ? map['batterySaverEnabled'] as bool
+          : null,
+      meshRole: map['meshRole'] != null ? '${map['meshRole']}' : null,
     );
   }
 

@@ -102,6 +102,7 @@ class ChatChannelService {
 
   static Future<Map<String, dynamic>> broadcastQuickStatus({
     required String status,
+    String? displayName,
   }) async {
     if (kIsWeb) {
       return <String, dynamic>{'ok': false, 'error': 'unsupported_on_web'};
@@ -111,6 +112,7 @@ class ChatChannelService {
         'broadcastQuickStatus',
         <String, dynamic>{
           'status': status,
+          'displayName': displayName,
         },
       );
       return _toMap(result);

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import 'offline_map_service.dart';
+import 'offline_vector_tile_debug.dart';
 import 'offline_vector_tile_pipeline.dart';
 import 'poi_categories.dart';
 
@@ -39,6 +40,8 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
   final OfflineVectorTilePipeline _pipeline = createOfflineVectorTilePipeline();
   Future<OfflineVectorMapConfig?>? _configFuture;
   MapLibreMapController? _mapController;
+  double _resolvedFocusZoom = 9;
+  double _resolvedMaxZoom = 9;
 
   MyLocationTrackingMode _trackingMode = MyLocationTrackingMode.none;
   LatLng? _userLocation;
@@ -71,14 +74,24 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
   Future<OfflineVectorMapConfig?> _loadConfig() async {
     final directPath = widget.mapPackPath;
     if (directPath != null && directPath.isNotEmpty) {
-      return _pipeline.ensureStarted(mbtilesPath: directPath);
+      final config = await _pipeline.ensureStarted(mbtilesPath: directPath);
+      if (config != null) {
+        _resolvedFocusZoom = config.maxZoom;
+        _resolvedMaxZoom = (config.maxZoom + 5).clamp(config.maxZoom, 20).toDouble();
+      }
+      return config;
     }
 
     final inspection = await _service.inspectRomaniaPack();
     if (!inspection.exists || inspection.localPath == null || inspection.localPath!.isEmpty) {
       return null;
     }
-    return _pipeline.ensureStarted(mbtilesPath: inspection.localPath!);
+    final config = await _pipeline.ensureStarted(mbtilesPath: inspection.localPath!);
+    if (config != null) {
+      _resolvedFocusZoom = config.maxZoom;
+      _resolvedMaxZoom = (config.maxZoom + 5).clamp(config.maxZoom, 20).toDouble();
+    }
+    return config;
   }
 
   Future<void> _moveCameraToRequestedPoint() async {
@@ -91,7 +104,7 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
         CameraUpdate.newCameraPosition(
           CameraPosition(
             target: LatLng(widget.latitude!, widget.longitude!),
-            zoom: 9,
+            zoom: _resolvedFocusZoom,
           ),
         ),
       );
@@ -109,7 +122,7 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
     try {
       await controller.animateCamera(
         CameraUpdate.newCameraPosition(
-          CameraPosition(target: target, zoom: 14),
+          CameraPosition(target: target, zoom: _resolvedFocusZoom),
         ),
       );
     } catch (_) {}
@@ -261,6 +274,25 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
     super.dispose();
   }
 
+  String? _renderWarningForStats(OfflineTileDebugStats stats) {
+    if (!_styleLoaded) {
+      return null;
+    }
+    if (stats.lastStatus.startsWith('file-source-')) {
+      return null;
+    }
+    if (stats.requests == 0) {
+      return 'NO TILE REQUESTS. MAP SDK IS NOT REACHING THE LOCAL TILE SERVER.';
+    }
+    if (stats.requests > 0 && stats.hits == 0) {
+      return 'TILES REQUESTED BUT NONE MATCHED IN MBTILES. CHECK TILE COORDINATE MAPPING.';
+    }
+    if (stats.hits > 0) {
+      return 'TILES ARE LOADING. IF MAP STILL LOOKS EMPTY, THE ISSUE IS IN VECTOR RENDERING.';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<OfflineVectorMapConfig?>(
@@ -314,9 +346,9 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
                   styleString: config.styleUrl,
                   initialCameraPosition: CameraPosition(
                     target: target,
-                    zoom: 7,
+                    zoom: _resolvedFocusZoom,
                   ),
-                  minMaxZoomPreference: MinMaxZoomPreference(config.minZoom, config.maxZoom + 1),
+                  minMaxZoomPreference: MinMaxZoomPreference(config.minZoom, _resolvedMaxZoom),
                   scrollGesturesEnabled: widget.interactive,
                   zoomGesturesEnabled: widget.interactive,
                   doubleClickZoomEnabled: widget.interactive,
@@ -449,6 +481,72 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
                         ),
                       ),
                     ),
+                  ),
+                ),
+              if (widget.interactive)
+                Positioned(
+                  left: 10,
+                  right: 10,
+                  top: 10,
+                  child: ValueListenableBuilder<OfflineTileDebugStats>(
+                    valueListenable: offlineTileDebugStats,
+                    builder: (context, stats, _) {
+                      final warning = _renderWarningForStats(stats);
+                      return IgnorePointer(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (warning != null)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                color: const Color(0xDD2C0C10),
+                                child: Text(
+                                  warning,
+                                  style: const TextStyle(
+                                    color: Color(0xFFFFB8B8),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.4,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              color: const Color(0xB0000000),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (stats.exportedTiles > 0)
+                                    Text(
+                                      'LOCAL TILES EXPORTED: ${stats.exportedTiles}',
+                                      style: const TextStyle(
+                                        color: Color(0xFF9DF0C2),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.3,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  Text(
+                                    'REQ ${stats.requests} | HIT ${stats.hits} | MISS ${stats.misses} | ${stats.lastStatus}',
+                                    style: const TextStyle(
+                                      color: Color(0xFFE4E8EE),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.3,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ),
             ],

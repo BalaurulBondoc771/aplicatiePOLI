@@ -52,6 +52,7 @@ class BleScanner(
     private val peerMap = linkedMapOf<String, PeerDevice>()
     private var lowPowerModeEnabled: Boolean = false
     private var cleanupIntervalMs: Long = 1_000L
+    private var localDisplayName: String? = null
 
     companion object {
         private const val CONNECTED_WINDOW_MS = 4_000L
@@ -96,6 +97,17 @@ class BleScanner(
     override fun configurePowerProfile(lowPowerEnabled: Boolean, refreshIntervalMs: Long) {
         lowPowerModeEnabled = lowPowerEnabled
         cleanupIntervalMs = refreshIntervalMs.coerceIn(1_000L, 120_000L)
+    }
+
+    override fun setLocalDisplayName(displayName: String?) {
+        localDisplayName = displayName?.trim()?.takeIf { it.isNotEmpty() }
+        val adapter = bluetoothAdapter ?: return
+        if (!adapter.isEnabled) return
+        try {
+            adapter.name = localDisplayName ?: adapter.name
+        } catch (_: SecurityException) {
+        } catch (_: Throwable) {
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -170,14 +182,25 @@ class BleScanner(
             val now = System.currentTimeMillis()
             val normalizedAddress = key.uppercase()
             val existing = peerMap[normalizedAddress]
+            val metadataRaw = result.scanRecord
+                ?.getServiceData(ParcelUuid(BleTransport.MESH_SERVICE_UUID))
+                ?.toString(Charsets.UTF_8)
+                ?.trim()
+            val metadataParts = metadataRaw?.split('|') ?: emptyList()
+            val presetCode = metadataParts.getOrNull(0)
+            val batterySaverRaw = metadataParts.getOrNull(1)
+            val roleCode = metadataParts.getOrNull(2)
             val peer = PeerDevice(
                 id = normalizedAddress,
-                name = device.name ?: "UNKNOWN_NODE",
+                name = device.name ?: localDisplayName ?: "UNKNOWN_NODE",
                 address = normalizedAddress,
                 rssi = result.rssi,
                 estimatedDistanceMeters = rssiToDistance(result.rssi),
                 status = PeerStatus.CONNECTED,
                 lastSeenAt = now,
+                statusPreset = mapStatusPresetCode(presetCode) ?: existing?.statusPreset,
+                batterySaverEnabled = mapBatterySaverFlag(batterySaverRaw) ?: existing?.batterySaverEnabled,
+                meshRole = mapMeshRoleCode(roleCode) ?: existing?.meshRole,
                 trusted = existing?.trusted ?: false,
                 relayCapable = existing?.relayCapable ?: true
             )
@@ -192,5 +215,32 @@ class BleScanner(
 
     private fun rssiToDistance(rssi: Int, txPower: Int = -59): Double {
         return 10.0.pow((txPower - rssi) / 20.0)
+    }
+
+    private fun mapStatusPresetCode(code: String?): String? {
+        return when (code?.uppercase()) {
+            "SI" -> "SILENT / INCOGNITO"
+            "FR" -> "FIELD READY"
+            "OB" -> "OPEN BROADCAST"
+            "EW" -> "EMERGENCY WATCH"
+            else -> null
+        }
+    }
+
+    private fun mapBatterySaverFlag(raw: String?): Boolean? {
+        return when (raw?.trim()) {
+            "1" -> true
+            "0" -> false
+            else -> null
+        }
+    }
+
+    private fun mapMeshRoleCode(code: String?): String? {
+        return when (code?.uppercase()) {
+            "S" -> "STEALTH"
+            "W" -> "WATCH"
+            "R" -> "RELAY"
+            else -> null
+        }
     }
 }

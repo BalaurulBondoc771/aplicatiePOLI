@@ -5,6 +5,7 @@ class AppRoutes {
   static const String chat = '/chat';
   static const String power = '/power';
   static const String sos = '/sos';
+  static const String settings = '/settings';
   static const String offlineMap = '/offline-map';
 
   static ChatRouteArgs? chatArgsOf(Object? args) {

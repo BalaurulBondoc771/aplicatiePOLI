@@ -52,6 +52,9 @@ data class PeerDevice(
     val estimatedDistanceMeters: Double,
     val status: PeerStatus,
     val lastSeenAt: Long,
+    val statusPreset: String? = null,
+    val batterySaverEnabled: Boolean? = null,
+    val meshRole: String? = null,
     val trusted: Boolean = false,
     val relayCapable: Boolean = true
 )

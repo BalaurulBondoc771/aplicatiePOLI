@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import 'power/power_controller.dart';
 import 'power/power_state.dart';
+import 'widgets/app_bottom_nav.dart';
 
 class PowerPage extends StatefulWidget {
   const PowerPage({super.key});
@@ -11,7 +12,7 @@ class PowerPage extends StatefulWidget {
   State<PowerPage> createState() => _PowerPageState();
 }
 
-class _PowerPageState extends State<PowerPage> {
+class _PowerPageState extends State<PowerPage> with WidgetsBindingObserver {
   final PowerController _controller = PowerController();
 
   static const Color _bg = Color(0xFF050608);
@@ -24,11 +25,20 @@ class _PowerPageState extends State<PowerPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller.init();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _controller.refresh();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
   }
@@ -106,42 +116,7 @@ class _PowerPageState extends State<PowerPage> {
                             ],
                           ),
                           const SizedBox(height: 18),
-                          GestureDetector(
-                            onTap: () => _controller.setBatterySaver(!state.batterySaverEnabled),
-                            child: Container(
-                              height: 54,
-                              padding: const EdgeInsets.symmetric(horizontal: 14),
-                              color: _panel,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    state.batterySaverEnabled ? Icons.battery_charging_full : Icons.battery_alert,
-                                    color: _amber,
-                                    size: 24,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      alignment: Alignment.centerLeft,
-                                      child: Text(
-                                        state.batterySaverEnabled
-                                            ? 'EXTREME SAVING ACTIVE'
-                                            : 'EXTREME SAVING OFF',
-                                        style: const TextStyle(
-                                          color: Color(0xFFDFE2E7),
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: 0.5,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                          _batterySaverRow(state),
                           const SizedBox(height: 36),
                           _settingCardCritical(state),
                           const SizedBox(height: 14),
@@ -262,15 +237,15 @@ class _PowerPageState extends State<PowerPage> {
       color: const Color(0xFF171A20),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
-        children: const [
-          Icon(Icons.navigation, color: _amber, size: 22),
-          SizedBox(width: 8),
-          Expanded(
+        children: [
+          const Icon(Icons.navigation, color: _amber, size: 21),
+          const SizedBox(width: 8),
+          const Expanded(
             child: Text(
               'BLACKOUT LINK',
               style: TextStyle(
                 color: _amber,
-                fontSize: 30,
+                fontSize: 24,
                 fontWeight: FontWeight.w900,
                 height: 1,
               ),
@@ -278,16 +253,88 @@ class _PowerPageState extends State<PowerPage> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          Spacer(),
-          Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 34),
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: () => Navigator.of(context).pushNamed(AppRoutes.settings),
+            child: const Icon(Icons.settings, color: Color(0xFFA8ADB8), size: 34),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _batterySaverRow(PowerState state) {
+    return GestureDetector(
+      onTap: () => _controller.setBatterySaver(!state.batterySaverEnabled),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 380;
+          final toggleWidth = compact ? 76.0 : 88.0;
+          final toggleHeight = compact ? 40.0 : 48.0;
+          final knobSize = compact ? 28.0 : 36.0;
+          return Container(
+            height: compact ? 92 : 96,
+            color: _panelSoft,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Icon(Icons.battery_charging_full, color: _amber, size: compact ? 22 : 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'BATTERY SAVER',
+                        style: TextStyle(
+                          color: const Color(0xFFE8EAEE),
+                          fontWeight: FontWeight.w800,
+                          fontSize: compact ? 18 : 20,
+                          letterSpacing: 0.2,
+                          height: 1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'EXTEND MESH UPTIME',
+                        style: TextStyle(
+                          color: const Color(0xFF9EA3AD),
+                          fontWeight: FontWeight.w700,
+                          fontSize: compact ? 11 : 12,
+                          letterSpacing: compact ? 0.6 : 0.8,
+                          height: 1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: toggleWidth,
+                  height: toggleHeight,
+                  color: state.batterySaverEnabled ? _amber : const Color(0xFF4A4D53),
+                  padding: const EdgeInsets.all(6),
+                  child: Align(
+                    alignment: state.batterySaverEnabled ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Container(width: knobSize, height: knobSize, color: Colors.black),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
   Widget _settingCardCritical(PowerState state) {
     return GestureDetector(
-      onTap: _controller.killBackgroundApps,
+      onTap: _controller.toggleCriticalTasksOnly,
       child: Container(
         width: double.infinity,
         constraints: const BoxConstraints(minHeight: 202),
@@ -298,67 +345,113 @@ class _PowerPageState extends State<PowerPage> {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 18, 16, 18),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Column(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 370;
+                    final toggle = Container(
+                      width: compact ? 76 : 88,
+                      height: compact ? 44 : 56,
+                      color: state.criticalTasksOnlyEnabled ? _amber : const Color(0xFF4A4D53),
+                      padding: const EdgeInsets.all(6),
+                      child: Align(
+                        alignment: state.criticalTasksOnlyEnabled
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          width: compact ? 28 : 40,
+                          height: compact ? 28 : 42,
+                          color: Colors.black,
+                        ),
+                      ),
+                    );
+
+                    if (compact) {
+                      return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
                             'CRITICAL TASKS ONLY',
                             style: TextStyle(
                               color: _muted,
-                              fontSize: 14,
+                              fontSize: 12,
                               fontWeight: FontWeight.w800,
-                              letterSpacing: 1.8,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 16),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: const Text(
-                              'KILL BACKGROUND\nAPPS',
-                              style: TextStyle(
-                                color: Color(0xFFDFE2E8),
-                                fontSize: 30,
-                                fontWeight: FontWeight.w900,
-                                height: 1.02,
-                              ),
-                              maxLines: 2,
+                              letterSpacing: 1.2,
                             ),
                           ),
                           const SizedBox(height: 10),
                           const Text(
-                            'OPTIMIZES INTERNAL TASKS AND\nOPENS BATTERY SETTINGS WHEN\nAVAILABLE.',
+                            'KILL BACKGROUND APPS',
+                            style: TextStyle(
+                              color: Color(0xFFDFE2E8),
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              height: 1.05,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'OPTIMIZES INTERNAL TASKS AND OPENS\nBATTERY SETTINGS WHEN AVAILABLE.',
                             style: TextStyle(
                               color: _muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
                               height: 1.35,
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          Align(alignment: Alignment.centerRight, child: toggle),
                         ],
-                      ),
-                    ),
-                    Container(
-                      width: 88,
-                      height: 56,
-                      color: state.criticalTasksOnlyEnabled
-                          ? _amber
-                          : const Color(0xFF4A4D53),
-                      padding: const EdgeInsets.all(6),
-                      child: Align(
-                        alignment: state.criticalTasksOnlyEnabled
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(width: 40, height: 42, color: Colors.black),
-                      ),
-                    ),
-                  ],
+                      );
+                    }
+
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text(
+                                'CRITICAL TASKS ONLY',
+                                style: TextStyle(
+                                  color: _muted,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                'KILL BACKGROUND APPS',
+                                style: TextStyle(
+                                  color: Color(0xFFDFE2E8),
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.0,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                'OPTIMIZES INTERNAL TASKS AND\nOPENS BATTERY SETTINGS WHEN\nAVAILABLE.',
+                                style: TextStyle(
+                                  color: _muted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        toggle,
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -386,7 +479,7 @@ class _PowerPageState extends State<PowerPage> {
                     'GRAYSCALE DISPLAY',
                     style: TextStyle(
                       color: Color(0xFFDFE2E8),
-                      fontSize: 28,
+                      fontSize: 22,
                       fontWeight: FontWeight.w900,
                       height: 1,
                     ),
@@ -483,169 +576,89 @@ class _PowerPageState extends State<PowerPage> {
   Widget _settingCardBluetooth(PowerState state) {
     return GestureDetector(
       onTap: () => _controller.setLowPowerBluetooth(!state.lowPowerBluetoothEnabled),
-      child: Container(
-        width: double.infinity,
-        constraints: const BoxConstraints(minHeight: 140),
-        color: _panelSoft,
-        padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 68,
-              color: Colors.black,
-              alignment: Alignment.center,
-              child: const Icon(Icons.bluetooth, color: _amber, size: 28),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 370;
+          final toggle = Container(
+            width: compact ? 76 : 88,
+            height: compact ? 44 : 56,
+            color: state.lowPowerBluetoothEnabled ? _amber : const Color(0xFF4A4D53),
+            padding: const EdgeInsets.all(6),
+            child: Align(
+              alignment: state.lowPowerBluetoothEnabled ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: compact ? 28 : 40,
+                height: compact ? 28 : 42,
+                color: Colors.black,
+              ),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'LOW POWER\nBLUETOOTH',
-                      style: TextStyle(
-                        color: Color(0xFFDFE2E8),
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        height: 1.05,
+          );
+
+          return Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 140),
+            color: _panelSoft,
+            padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 48,
+                  height: 68,
+                  color: Colors.black,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.bluetooth, color: _amber, size: 28),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'LOW POWER BLUETOOTH',
+                        style: TextStyle(
+                          color: const Color(0xFFDFE2E8),
+                          fontSize: compact ? 17 : 19,
+                          fontWeight: FontWeight.w900,
+                          height: 1.05,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'SCAN INTERVAL ${state.scanIntervalMs ~/ 1000}S ${state.lowPowerBluetoothEnabled ? '(LOW POWER)' : '(NORMAL)'}',
+                        style: TextStyle(
+                          color: _muted,
+                          fontSize: compact ? 11 : 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: compact ? 0.5 : 0.8,
+                          height: 1.3,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (compact) ...[
+                        const SizedBox(height: 10),
+                        Align(alignment: Alignment.centerRight, child: toggle),
+                      ],
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'SCAN INTERVAL ${state.scanIntervalMs ~/ 1000}S ${state.lowPowerBluetoothEnabled ? '(LOW POWER)' : '(NORMAL)'}',
-                    style: const TextStyle(
-                      color: _muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      height: 1.3,
-                    ),
-                  ),
+                ),
+                if (!compact) ...[
+                  const SizedBox(width: 10),
+                  toggle,
                 ],
-              ),
+              ],
             ),
-            Container(
-              width: 88,
-              height: 56,
-              color: state.lowPowerBluetoothEnabled
-                  ? _amber
-                  : const Color(0xFF4A4D53),
-              padding: const EdgeInsets.all(6),
-              child: Align(
-                alignment: state.lowPowerBluetoothEnabled
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Container(width: 40, height: 42, color: Colors.black),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
   Widget _bottomNav(BuildContext context) {
-    return Container(
-      height: 86,
-      color: const Color(0xFF080A0E),
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: _NavItem(
-              icon: Icons.dashboard_outlined,
-              label: 'DASHBOARD',
-              active: false,
-              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard),
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.chat_outlined,
-              label: 'CHAT',
-              active: false,
-              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.chat),
-            ),
-          ),
-          const Expanded(
-            child: _NavItem(
-              icon: Icons.flash_on_outlined,
-              label: 'POWER',
-              active: true,
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              icon: Icons.warning_amber_rounded,
-              label: 'SOS',
-              active: false,
-              onTap: () => Navigator.of(context).pushReplacementNamed(AppRoutes.sos),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.active,
-    this.onTap,
-  });
-
-  static const Color _activeAmber = Color(0xFFF7B21A);
-
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        decoration: BoxDecoration(
-          color: active ? _activeAmber : Colors.transparent,
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: active ? Colors.black : const Color(0xFF737885),
-              size: 22,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: active ? Colors.black : const Color(0xFF737885),
-                fontSize: 11,
-                letterSpacing: 0.5,
-                fontWeight: FontWeight.w800,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
+    return const AppBottomNav(currentRoute: AppRoutes.power);
   }
 }

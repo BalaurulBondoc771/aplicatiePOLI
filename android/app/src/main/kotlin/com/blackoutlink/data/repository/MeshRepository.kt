@@ -93,6 +93,10 @@ class MeshRepository(
         bleScanner.configurePowerProfile(enabled, scanIntervalMs)
     }
 
+    fun setLocalDisplayName(displayName: String?) {
+        bleScanner.setLocalDisplayName(displayName)
+    }
+
     fun locationUpdates() = locationTracker?.locationUpdates() ?: emptyFlow()
 
     fun observeMessages() = messageDao?.observeAll() ?: emptyFlow()

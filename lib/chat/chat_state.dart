@@ -11,6 +11,7 @@ class ChatState {
     required this.connectionState,
     required this.latencyMs,
     required this.sessionState,
+    required this.encryptionEnabled,
     this.lastError,
   });
 
@@ -22,6 +23,7 @@ class ChatState {
   final String connectionState;
   final int latencyMs;
   final String sessionState;
+  final bool encryptionEnabled;
   final String? lastError;
 
   factory ChatState.initial() {
@@ -34,6 +36,7 @@ class ChatState {
       connectionState: 'disconnected',
       latencyMs: 0,
       sessionState: 'idle',
+      encryptionEnabled: false,
       lastError: null,
     );
   }
@@ -47,6 +50,7 @@ class ChatState {
     String? connectionState,
     int? latencyMs,
     String? sessionState,
+    bool? encryptionEnabled,
     String? lastError,
     bool clearError = false,
   }) {
@@ -59,6 +63,7 @@ class ChatState {
       connectionState: connectionState ?? this.connectionState,
       latencyMs: latencyMs ?? this.latencyMs,
       sessionState: sessionState ?? this.sessionState,
+      encryptionEnabled: encryptionEnabled ?? this.encryptionEnabled,
       lastError: clearError ? null : (lastError ?? this.lastError),
     );
   }
