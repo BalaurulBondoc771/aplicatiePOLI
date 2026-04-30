@@ -27,7 +27,14 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.util.UUID
+
+import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Handles BLE advertising (so other devices can discover us), a GATT server
@@ -39,6 +46,11 @@ import java.util.UUID
  */
 @SuppressLint("MissingPermission")
 class BleTransport(private val context: Context) {
+    // Per-peer mutex for BLE send serialization
+    private val peerMutexes = ConcurrentHashMap<String, Mutex>()
+    private fun log(msg: String) {
+        Log.d("BleTransport", msg)
+    }
 
     data class IncomingPacket(
         val sourceAddress: String,
@@ -194,73 +206,57 @@ class BleTransport(private val context: Context) {
      *
      * @return true if the write was acknowledged by the remote device.
      */
+
     suspend fun sendTo(address: String, payload: ByteArray): Boolean = withContext(Dispatchers.IO) {
         val adapter = bluetoothAdapter ?: return@withContext false
         if (!adapter.isEnabled || payload.isEmpty()) return@withContext false
 
-        val resultDeferred = CompletableDeferred<Boolean>()
-
-        val gattCallback = object : BluetoothGattCallback() {
-
-            override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                try {
-                    when (newState) {
-                        BluetoothProfile.STATE_CONNECTED -> {
-                            if (status != BluetoothGatt.GATT_SUCCESS) {
-                                gatt.disconnect()
-                                if (!resultDeferred.isCompleted) resultDeferred.complete(false)
-                                return
-                            }
-
-                            // Some devices do not complete MTU negotiation reliably.
-                            // Fall back to service discovery immediately when MTU request fails.
-                            val mtuRequested = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                gatt.requestMtu(TARGET_MTU)
-                            } else {
-                                false
-                            }
-                            if (!mtuRequested) {
-                                gatt.discoverServices()
-                            }
-                        }
-                        BluetoothProfile.STATE_DISCONNECTED -> {
-                            gatt.close()
+        val mutex = peerMutexes.getOrPut(address) { Mutex() }
+        mutex.withLock {
+            log("sendTo called for $address, bytes=${payload.size}")
+            val resultDeferred = CompletableDeferred<Boolean>()
+            var gatt: BluetoothGatt? = null
+            val gattCallback = object : BluetoothGattCallback() {
+                override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+                    log("[BLE] onConnectionStateChange $address status=$status newState=$newState")
+                    if (newState == BluetoothProfile.STATE_CONNECTED) {
+                        if (status != BluetoothGatt.GATT_SUCCESS) {
+                            log("[BLE] connect fail $address")
+                            gatt.disconnect()
                             if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                            return
                         }
+                        log("[BLE] connected, requesting MTU $address")
+                        val mtuRequested = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            gatt.requestMtu(TARGET_MTU)
+                        } else false
+                        if (!mtuRequested) gatt.discoverServices()
+                    } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                        log("[BLE] disconnected $address")
+                        gatt.close()
+                        if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                     }
-                } catch (_: Throwable) {
-                    gatt.close()
-                    if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                 }
-            }
-
-            override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-                try {
-                    // Discover services regardless of whether MTU negotiation succeeded.
+                override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+                    log("[BLE] onMtuChanged $address mtu=$mtu status=$status")
                     gatt.discoverServices()
-                } catch (_: Throwable) {
-                    gatt.disconnect()
-                    if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                 }
-            }
-
-            override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-                try {
+                override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+                    log("[BLE] onServicesDiscovered $address status=$status")
                     if (status != BluetoothGatt.GATT_SUCCESS) {
+                        log("[BLE] service discovery fail $address")
                         gatt.disconnect()
                         if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                         return
                     }
-
-                    val char = gatt.getService(MESH_SERVICE_UUID)
-                        ?.getCharacteristic(MESSAGE_CHAR_UUID)
-
+                    val char = gatt.getService(MESH_SERVICE_UUID)?.getCharacteristic(MESSAGE_CHAR_UUID)
                     if (char == null) {
+                        log("[BLE] characteristic not found $address")
                         gatt.disconnect()
                         if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                         return
                     }
-
+                    log("[BLE] writeCharacteristic called $address")
                     val wrote = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         val code = gatt.writeCharacteristic(
                             char,
@@ -276,64 +272,50 @@ class BleTransport(private val context: Context) {
                         @Suppress("DEPRECATION")
                         gatt.writeCharacteristic(char)
                     }
-
                     if (!wrote) {
+                        log("[BLE] writeCharacteristic failed $address")
                         gatt.disconnect()
                         if (!resultDeferred.isCompleted) resultDeferred.complete(false)
                     }
-                } catch (_: Throwable) {
+                }
+                override fun onCharacteristicWrite(
+                    gatt: BluetoothGatt,
+                    characteristic: BluetoothGattCharacteristic,
+                    status: Int
+                ) {
+                    log("[BLE] onCharacteristicWrite $address status=$status")
                     gatt.disconnect()
-                    if (!resultDeferred.isCompleted) resultDeferred.complete(false)
+                    if (!resultDeferred.isCompleted) resultDeferred.complete(status == BluetoothGatt.GATT_SUCCESS)
                 }
             }
-
-            override fun onCharacteristicWrite(
-                gatt: BluetoothGatt,
-                characteristic: BluetoothGattCharacteristic,
-                status: Int
-            ) {
-                try {
-                    if (!resultDeferred.isCompleted) {
-                        resultDeferred.complete(status == BluetoothGatt.GATT_SUCCESS)
-                    }
-                    gatt.disconnect()
-                } catch (_: Throwable) {
-                    if (!resultDeferred.isCompleted) {
-                        resultDeferred.complete(false)
-                    }
+            val device = try {
+                log("[BLE] getRemoteDevice $address")
+                adapter.getRemoteDevice(address)
+            } catch (_: Exception) {
+                log("[BLE] getRemoteDevice failed for $address")
+                return@withLock false
+            }
+            gatt = try {
+                log("[BLE] connecting GATT $address")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    device.connectGatt(context, false, gattCallback)
                 }
-            }
-        }
-
-        val device = try {
-            adapter.getRemoteDevice(address)
-        } catch (_: Exception) {
-            return@withContext false
-        }
-
-        val gatt = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-            } else {
-                @Suppress("DEPRECATION")
-                device.connectGatt(context, false, gattCallback)
-            }
-        } catch (_: Throwable) {
-            null
-        } ?: return@withContext false
-
-        val result = withTimeoutOrNull(SEND_TIMEOUT_MS) { resultDeferred.await() } ?: false
-        if (!resultDeferred.isCompleted) {
-            try {
-                gatt.disconnect()
             } catch (_: Throwable) {
+                log("[BLE] connectGatt exception $address")
+                null
             }
-            try {
-                gatt.close()
-            } catch (_: Throwable) {
+            if (gatt == null) return@withLock false
+            val result = withTimeoutOrNull(8000) { resultDeferred.await() } ?: false
+            if (!resultDeferred.isCompleted) {
+                log("[BLE] write timeout or disconnect $address")
+                try { gatt.disconnect() } catch (_: Throwable) {}
+                try { gatt.close() } catch (_: Throwable) {}
             }
+            return@withLock result
         }
-        result
     }
 
     // ── GATT server callbacks ─────────────────────────────────────────────────
@@ -353,6 +335,11 @@ class BleTransport(private val context: Context) {
             try {
                 if (characteristic.uuid == MESSAGE_CHAR_UUID && value != null && value.isNotEmpty()) {
                     val source = device.address?.trim()?.uppercase()
+                    val payloadStr = try { value.toString(Charsets.UTF_8) } catch (_: Throwable) { "<binary>" }
+                    log("[BLE] onCharacteristicWriteRequest from $source, bytes=${value.size}, payload=$payloadStr")
+                    if (payloadStr == "PING_FROM_BLACKOUT_LINK") {
+                        log("[BLE] DIAGNOSTIC PING RECEIVED from $source")
+                    }
                     if (!source.isNullOrEmpty()) {
                         _incomingBytes.tryEmit(IncomingPacket(sourceAddress = source, payload = value))
                     }

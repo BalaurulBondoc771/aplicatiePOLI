@@ -56,19 +56,26 @@ class E2ESessionManager(
 
     private val sessionKeys = ConcurrentHashMap<String, ByteArray>()
 
+
     fun encodeHandshakeHello(): ByteArray {
         val pub = Base64.encodeToString(cryptoManager.getIdentityPublicKeyEncoded(), Base64.NO_WRAP)
+        Log.d(loggerTag, "encodeHandshakeHello: HS1 sent")
         return "$E2E_PREFIX|HS1|$pub".encodeToByteArray()
     }
 
+
     fun encodeHandshakeAck(): ByteArray {
         val pub = Base64.encodeToString(cryptoManager.getIdentityPublicKeyEncoded(), Base64.NO_WRAP)
+        Log.d(loggerTag, "encodeHandshakeAck: HS2 sent")
         return "$E2E_PREFIX|HS2|$pub".encodeToByteArray()
     }
 
+
     fun hasSession(peerId: String?): Boolean {
         val normalizedPeer = normalize(peerId) ?: return false
-        return sessionKeys[normalizedPeer] != null
+        val has = sessionKeys[normalizedPeer] != null
+        Log.d(loggerTag, "hasSession($normalizedPeer) = $has")
+        return has
     }
 
     fun pruneSessions(activePeerIds: Set<String>) {
@@ -89,23 +96,29 @@ class E2ESessionManager(
         return encodeEncryptedPayload(encrypted.iv, encrypted.cipherText)
     }
 
+
     suspend fun ensureSession(
         peerId: String,
         onSendHello: (String, ByteArray) -> Unit,
         config: HandshakeConfig = HandshakeConfig(),
     ): Boolean {
         val normalizedPeer = normalize(peerId) ?: return false
-        if (sessionKeys[normalizedPeer] != null) return true
+        if (sessionKeys[normalizedPeer] != null) {
+            Log.d(loggerTag, "ensureSession: already exists for $normalizedPeer")
+            return true
+        }
 
         var waited = 0L
         var lastHelloAt = -config.resendMs
         while (waited < config.waitMs) {
             if (sessionKeys[normalizedPeer] != null) {
+                Log.d(loggerTag, "ensureSession: session created for $normalizedPeer after $waited ms")
                 return true
             }
 
             if ((waited - lastHelloAt) >= config.resendMs) {
                 lastHelloAt = waited
+                Log.d(loggerTag, "ensureSession: sending HS1 to $normalizedPeer at $waited ms")
                 onSendHello(normalizedPeer, encodeHandshakeHello())
             }
 
@@ -113,18 +126,28 @@ class E2ESessionManager(
             waited += config.pollMs
         }
 
-        return sessionKeys[normalizedPeer] != null
+        val ok = sessionKeys[normalizedPeer] != null
+        Log.d(loggerTag, "ensureSession: session ${if (ok) "created" else "FAILED"} for $normalizedPeer after $waited ms")
+        return ok
     }
+
 
     fun processIncomingPacket(peerId: String, payload: ByteArray): IncomingPacketResult {
         val normalizedPeer = normalize(peerId) ?: peerId
         val envelope = decodeEnvelope(payload) ?: return IncomingPacketResult.NotE2E
+
+        when (envelope.type) {
+            "HS1" -> Log.d(loggerTag, "HS1 received from $normalizedPeer")
+            "HS2" -> Log.d(loggerTag, "HS2 received from $normalizedPeer")
+            "MSG" -> Log.d(loggerTag, "MSG received from $normalizedPeer")
+        }
 
         return when (envelope.type) {
             "HS1" -> {
                 val remotePub = Base64.decode(envelope.partA, Base64.DEFAULT)
                 val sessionKey = cryptoManager.deriveSessionKey(remotePub)
                 sessionKeys[normalizedPeer] = sessionKey
+                Log.d(loggerTag, "session created/refreshed for $normalizedPeer (HS1)")
                 IncomingPacketResult.HandshakeHelloReceived(
                     peerId = normalizedPeer,
                     ackPayload = encodeHandshakeAck(),
@@ -135,12 +158,14 @@ class E2ESessionManager(
                 val remotePub = Base64.decode(envelope.partA, Base64.DEFAULT)
                 val sessionKey = cryptoManager.deriveSessionKey(remotePub)
                 sessionKeys[normalizedPeer] = sessionKey
+                Log.d(loggerTag, "session created/refreshed for $normalizedPeer (HS2)")
                 IncomingPacketResult.HandshakeAckReceived(peerId = normalizedPeer)
             }
 
             "MSG" -> {
                 val sessionKey = sessionKeys[normalizedPeer]
                 if (sessionKey == null) {
+                    Log.w(loggerTag, "MSG received without session for $normalizedPeer — trigger handshake, save pending")
                     IncomingPacketResult.HandshakeRecoveryRequired(
                         peerId = normalizedPeer,
                         helloPayload = encodeHandshakeHello(),
@@ -161,11 +186,13 @@ class E2ESessionManager(
                     }.getOrNull()
 
                     if (decryptedPacket == null) {
+                        Log.w(loggerTag, "decrypt failed for $normalizedPeer (MSG)")
                         IncomingPacketResult.DecryptFailed(
                             peerId = normalizedPeer,
                             reason = "decrypt_failed",
                         )
                     } else {
+                        Log.d(loggerTag, "decrypt success for $normalizedPeer (MSG)")
                         IncomingPacketResult.DecryptedMessage(
                             peerId = normalizedPeer,
                             decryptedPayload = decryptedPacket,

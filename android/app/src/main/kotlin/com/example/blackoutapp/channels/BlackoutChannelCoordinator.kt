@@ -240,6 +240,8 @@ class BlackoutChannelCoordinator(
         MethodChannel(messenger, SYSTEM_CHANNEL).setMethodCallHandler(::onSystemMethodCall)
     }
 
+
+
     private fun configureEventChannels(messenger: BinaryMessenger) {
         EventChannel(messenger, CHAT_INCOMING_CHANNEL).setStreamHandler(
             createHandler(
@@ -330,6 +332,31 @@ class BlackoutChannelCoordinator(
     }
 
     private fun onChatMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "sendBleDiagnosticPing") {
+            val peerId = call.argument<String>("peerId")
+            Log.d("DIAG", "sendBleDiagnosticPing called with peerId=$peerId")
+            val activePeers = meshRepository.getCurrentPeers()
+            Log.d("DIAG", "activePeers: ${activePeers.map { it.id to it.status.name }}")
+            val normalizedPeerId = normalizePeerId(peerId)
+            val selectedPeer = activePeers.firstOrNull { normalizePeerId(it.id) == normalizedPeerId }
+            Log.d("DIAG", "selectedPeer: ${selectedPeer?.id}")
+            if (selectedPeer == null) {
+                result.success(mapOf("ok" to false, "error" to "peer_not_found"))
+                return
+            }
+            try {
+                Log.d("DIAG", "calling bleTransport.sendTo for $normalizedPeerId")
+                scope.launch {
+                    val sendResult = bleTransport.sendTo(normalizedPeerId!!, "PING_FROM_BLACKOUT_LINK".toByteArray(Charsets.UTF_8))
+                    Log.d("DIAG", "bleTransport.sendTo result: $sendResult")
+                    result.success(mapOf("ok" to sendResult))
+                }
+            } catch (e: Exception) {
+                Log.e("DIAG", "Exception in sendBleDiagnosticPing", e)
+                result.success(mapOf("ok" to false, "error" to e.toString()))
+            }
+            return
+        }
         when (call.method) {
             "startOfflineChat" -> {
                 emitChatConnectionState(
