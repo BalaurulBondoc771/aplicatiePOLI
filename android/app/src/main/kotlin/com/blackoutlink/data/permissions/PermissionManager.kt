@@ -29,6 +29,7 @@ class PermissionManager(
 
         val scanGranted = statuses[Manifest.permission.BLUETOOTH_SCAN] in grantedLikeStatuses()
         val connectGranted = statuses[Manifest.permission.BLUETOOTH_CONNECT] in grantedLikeStatuses()
+        val advertiseGranted = statuses[Manifest.permission.BLUETOOTH_ADVERTISE] in grantedLikeStatuses()
         val fineLocationGranted = statuses[Manifest.permission.ACCESS_FINE_LOCATION] == "granted"
 
         return mapOf(
@@ -36,7 +37,7 @@ class PermissionManager(
             "permissions" to statuses,
             "bluetoothEnabled" to bluetoothEnabled,
             "locationServiceEnabled" to locationServiceEnabled,
-            "allGrantedCore" to (scanGranted && connectGranted && fineLocationGranted),
+            "allGrantedCore" to (scanGranted && connectGranted && advertiseGranted && fineLocationGranted),
         )
     }
 
@@ -62,6 +63,7 @@ class PermissionManager(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             list.add(Manifest.permission.BLUETOOTH_SCAN)
             list.add(Manifest.permission.BLUETOOTH_CONNECT)
+            list.add(Manifest.permission.BLUETOOTH_ADVERTISE)
         } else {
             // Android < 31 does not require runtime BT_SCAN/BT_CONNECT.
             list.add(Manifest.permission.BLUETOOTH_SCAN)
@@ -96,7 +98,8 @@ class PermissionManager(
     private fun isNotRequired(permission: String): Boolean {
         return when (permission) {
             Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT -> Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_ADVERTISE -> Build.VERSION.SDK_INT < Build.VERSION_CODES.S
             else -> false
         }
     }

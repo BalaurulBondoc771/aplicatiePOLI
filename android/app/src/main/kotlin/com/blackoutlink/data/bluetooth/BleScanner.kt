@@ -190,9 +190,14 @@ class BleScanner(
             val presetCode = metadataParts.getOrNull(0)
             val batterySaverRaw = metadataParts.getOrNull(1)
             val roleCode = metadataParts.getOrNull(2)
+            val advertisedName = sanitizePeerName(device.name)
+            val existingName = sanitizePeerName(existing?.name)
+            val resolvedName = advertisedName
+                ?: existingName
+                ?: normalizedAddress
             val peer = PeerDevice(
                 id = normalizedAddress,
-                name = device.name ?: localDisplayName ?: "UNKNOWN_NODE",
+                name = resolvedName,
                 address = normalizedAddress,
                 rssi = result.rssi,
                 estimatedDistanceMeters = rssiToDistance(result.rssi),
@@ -242,5 +247,18 @@ class BleScanner(
             "R" -> "RELAY"
             else -> null
         }
+    }
+
+    private fun sanitizePeerName(raw: String?): String? {
+        val candidate = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val upper = candidate.uppercase()
+        if (upper == "OPERATOR_X" || upper == "UNKNOWN_NODE") {
+            return null
+        }
+        // Ignore accidental self-name echoes from adapter-level naming.
+        if (localDisplayName?.trim()?.equals(candidate, ignoreCase = true) == true) {
+            return null
+        }
+        return candidate
     }
 }

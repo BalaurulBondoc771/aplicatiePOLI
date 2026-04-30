@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'app_display_settings.dart';
 import 'app_routes.dart';
+import 'quick_status_models.dart';
 import 'services/app_settings_service.dart';
 import 'services/power_channel_service.dart';
 import 'widgets/app_bottom_nav.dart';
@@ -24,16 +25,20 @@ class _SettingsPageState extends State<SettingsPage> {
   static const Color _muted = Color(0xFF7E838D);
   static const Color _text = Color(0xFFE8EAEE);
 
-  static const List<String> _statusPresets = <String>[
-    'SILENT / INCOGNITO',
-    'FIELD READY',
-    'OPEN BROADCAST',
-    'EMERGENCY WATCH',
+  static const String _noneQuickPreset = 'NONE';
+  static const List<String> _quickStatusPresetWires = <String>[
+    _noneQuickPreset,
+    'I_AM_SAFE',
+    'ON_MY_WAY',
+    'NEED_WATER',
+    'LOW_BATTERY',
+    'NEED_HELP',
   ];
 
   bool _loading = true;
   String _displayName = 'OPERATOR_X';
   String _statusPreset = 'SILENT / INCOGNITO';
+  String _quickStatusPreset = _noneQuickPreset;
   String _encryptionKey = 'BKOT-7F3A-91CD-E256-ROT';
   bool _grayscaleEnabled = false;
   bool _backgroundDiscoverabilityEnabled = true;
@@ -63,6 +68,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _displayName = local.displayName;
       _statusPreset = local.statusPreset;
+      _quickStatusPreset = local.quickStatusPreset;
       _encryptionKey = local.encryptionKey;
       _grayscaleEnabled = powerSettings['grayscaleUiEnabled'] == true;
       _backgroundDiscoverabilityEnabled = powerSettings['backgroundBeaconEnabled'] is bool
@@ -131,11 +137,11 @@ class _SettingsPageState extends State<SettingsPage> {
           top: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: _statusPresets.map((preset) {
-              final bool selected = preset == _statusPreset;
+            children: _quickStatusPresetWires.map((presetWire) {
+              final bool selected = presetWire == _quickStatusPreset;
               return ListTile(
                 title: Text(
-                  preset,
+                  _quickStatusPresetLabel(presetWire),
                   style: TextStyle(
                     color: selected ? _amber : _text,
                     fontWeight: FontWeight.w800,
@@ -145,16 +151,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailing: selected
                     ? const Icon(Icons.check, color: _amber)
                     : const Icon(Icons.chevron_right, color: _muted),
-                onTap: () => Navigator.of(context).pop(preset),
+                onTap: () => Navigator.of(context).pop(presetWire),
               );
             }).toList(growable: false),
           ),
         );
       },
     );
-    if (selected == null || selected == _statusPreset) return;
+    if (selected == null || selected == _quickStatusPreset) return;
     setState(() {
-      _statusPreset = selected;
+      _quickStatusPreset = selected;
     });
     await _persistLocalSettings();
   }
@@ -163,6 +169,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final AppSettingsData next = AppSettingsData(
       displayName: _displayName,
       statusPreset: _statusPreset,
+      quickStatusPreset: _quickStatusPreset,
       encryptionKey: _encryptionKey,
       backgroundDiscoverabilityEnabled: _backgroundDiscoverabilityEnabled,
     );
@@ -177,6 +184,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final AppSettingsData next = AppSettingsData(
       displayName: _displayName,
       statusPreset: _statusPreset,
+      quickStatusPreset: _quickStatusPreset,
       encryptionKey: _encryptionKey,
       backgroundDiscoverabilityEnabled: enabled,
     );
@@ -459,8 +467,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           _divider(),
           _settingsRow(
-            title: 'STATUS PRESET',
-            subtitle: _statusPreset,
+            title: 'QUICK STATUS PRESET',
+            subtitle: _quickStatusPresetLabel(_quickStatusPreset),
             subtitleColor: _amber,
             trailing: const Icon(Icons.keyboard_arrow_down, color: _muted, size: 28),
             onTap: _chooseStatusPreset,
@@ -604,6 +612,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _divider() {
     return const Divider(height: 1, thickness: 1, color: _line);
+  }
+
+  String _quickStatusPresetLabel(String wireValue) {
+    if (wireValue == _noneQuickPreset) {
+      return 'NONE';
+    }
+    final QuickStatusType? status = QuickStatusTypeParse.fromWireValue(wireValue);
+    if (status == null) {
+      return wireValue.replaceAll('_', ' ');
+    }
+    return status.label;
   }
 
   String _runtimeMeshStatusLabel() {

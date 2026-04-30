@@ -14,6 +14,8 @@ import 'dashboard_models.dart';
 class DashboardController {
   DashboardController();
 
+  static String? _appliedQuickPresetThisRun;
+
   final StreamController<DashboardState> _stateController =
       StreamController<DashboardState>.broadcast();
 
@@ -34,6 +36,7 @@ class DashboardController {
     _powerSub = PowerChannelService.powerStateUpdates.listen(_onPowerUpdate, onError: _onError);
 
     await _bootstrap();
+    await _applyQuickStatusPresetOnEntry();
 
     _staleTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       final bool stale = _state.lastUpdatedMs == 0 ||
@@ -133,6 +136,31 @@ class DashboardController {
       );
     }
     return BroadcastResultDto.fromMap(result);
+  }
+
+  Future<void> _applyQuickStatusPresetOnEntry() async {
+    try {
+      final AppSettingsData appSettings = await AppSettingsService.load();
+      final String presetWire = appSettings.quickStatusPreset.trim().toUpperCase();
+      if (presetWire.isEmpty || presetWire == 'NONE') {
+        return;
+      }
+      if (_appliedQuickPresetThisRun == presetWire) {
+        return;
+      }
+      final QuickStatusType? status = QuickStatusTypeParse.fromWireValue(presetWire);
+      if (status == null) {
+        return;
+      }
+
+      await ChatChannelService.broadcastQuickStatus(
+        status: status.wireValue,
+        displayName: appSettings.displayName,
+      );
+      _appliedQuickPresetThisRun = presetWire;
+    } catch (_) {
+      // Preset auto-share should not block dashboard startup.
+    }
   }
 
   Future<void> refreshMesh() async {

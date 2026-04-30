@@ -40,6 +40,27 @@ extension QuickStatusTypeWire on QuickStatusType {
   }
 }
 
+extension QuickStatusTypeParse on QuickStatusType {
+  static QuickStatusType? fromWireValue(String? raw) {
+    final String wire = (raw ?? '').trim().toUpperCase();
+    switch (wire) {
+      case 'I_AM_SAFE':
+        return QuickStatusType.iAmSafe;
+      case 'ON_MY_WAY':
+      case 'EN_ROUTE':
+        return QuickStatusType.onMyWay;
+      case 'NEED_WATER':
+        return QuickStatusType.needWater;
+      case 'LOW_BATTERY':
+        return QuickStatusType.lowBattery;
+      case 'NEED_HELP':
+        return QuickStatusType.needHelp;
+      default:
+        return null;
+    }
+  }
+}
+
 class QuickStatusPayload {
   const QuickStatusPayload({
     required this.wireStatus,

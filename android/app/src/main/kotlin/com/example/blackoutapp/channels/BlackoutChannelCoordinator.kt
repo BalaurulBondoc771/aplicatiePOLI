@@ -19,6 +19,7 @@ import com.blackoutlink.data.permissions.PermissionManager
 import com.blackoutlink.data.protocol.MeshProtocol
 import com.blackoutlink.data.repository.MeshRepository
 import com.blackoutlink.data.security.CryptoManager
+import com.blackoutlink.data.security.E2ESessionManager
 import com.blackoutlink.data.storage.BlackoutDatabase
 import com.blackoutlink.data.storage.MessageEntity
 import com.blackoutlink.data.storage.SettingsStore
@@ -48,10 +49,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import com.example.blackoutapp.MeshBeaconService
 
 class BlackoutChannelCoordinator(
@@ -82,8 +86,10 @@ class BlackoutChannelCoordinator(
         private const val QUICK_STATUS_TTL_MS = 5 * 60 * 1000L
         private const val FALLBACK_DISCHARGE_UA = 180_000.0
         private const val E2E_PREFIX = "BKE2"
-        private const val E2E_HANDSHAKE_WAIT_MS = 1_500L
-        private const val E2E_HANDSHAKE_POLL_MS = 75L
+        private const val PENDING_E2E_PREFIX = "PENDING_E2E:"
+        private const val E2E_HANDSHAKE_WAIT_MS = 7_000L
+        private const val E2E_HANDSHAKE_POLL_MS = 100L
+        private const val E2E_HANDSHAKE_RESEND_MS = 900L
     }
 
     private var chatSink: EventChannel.EventSink? = null
@@ -106,7 +112,6 @@ class BlackoutChannelCoordinator(
     private var lastRuntimeSource: String = "battery_percent"
     private val chatSessionByPeerId = mutableMapOf<String, String>()
     private val chatSessionMeta = mutableMapOf<String, Map<String, Any?>>()
-    private val e2eSessionKeys = mutableMapOf<String, ByteArray>()
     private val localNodeId: String by lazy {
         (Settings.Secure.getString(activity.contentResolver, Settings.Secure.ANDROID_ID)
             ?.uppercase()
@@ -126,6 +131,11 @@ class BlackoutChannelCoordinator(
     private val permissionManager = PermissionManager(activity)
     private val settingsStore = SettingsStore(activity.applicationContext)
     private val cryptoManager = CryptoManager()
+    private val e2eSessionManager = E2ESessionManager(
+        cryptoManager = cryptoManager,
+        normalizePeerId = ::normalizePeerId,
+        loggerTag = "BLC-E2E"
+    )
     private val meshRepository = MeshRepository(
         bleScanner = bleScanner,
         locationTracker = locationTracker,
@@ -141,18 +151,14 @@ class BlackoutChannelCoordinator(
     private var meshEventJob: Job? = null
     private var locationEventJob: Job? = null
     private var systemHealthTickerJob: Job? = null
+    private var queuedRetryJob: Job? = null
+    private val peerSendMutexes = ConcurrentHashMap<String, Mutex>()
     private val systemHealthAggregator = SystemHealthAggregator()
     private val messageValidationUseCase = MessageValidationUseCase()
     private val quickStatusRecipientResolver = QuickStatusRecipientResolver(staleMs = PEER_STALE_MS)
     private val locationFallbackResolver = LocationFallbackResolver()
     private val powerProfileMapper = PowerProfileMapper()
     private var pendingPermissionsResult: MethodChannel.Result? = null
-
-    private data class E2eEnvelope(
-        val type: String,
-        val partA: String,
-        val partB: String? = null
-    )
 
     private data class MeshState(
         val peers: List<PeerDevice> = emptyList(),
@@ -175,6 +181,7 @@ class BlackoutChannelCoordinator(
         startMeshCollectors()
         startSystemHealthTicker()
         subscribeToIncomingTransport()
+        ensureMeshRuntimeActive()
     }
 
     fun requestMeshRuntimePermissionsIfNeeded() {
@@ -1439,8 +1446,10 @@ class BlackoutChannelCoordinator(
             launch {
                 meshRepository.peers.collect { peers ->
                     withContext(Dispatchers.IO) {
+                            pruneEncryptedSessions(peers.mapNotNull { normalizePeerId(it.id) }.toSet())
                         meshRepository.saveRecentPeers(peers)
                         flushPendingQuickStatusIfPossible()
+                        flushQueuedChatMessagesIfPossible()
                     }
                     _meshState.update {
                         it.copy(
@@ -1631,6 +1640,7 @@ class BlackoutChannelCoordinator(
         sessionId: String?
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
         try {
+        ensureMeshRuntimeActive()
         val validation = messageValidationUseCase.validateDraft(content)
         if (!validation.valid) {
             return@withContext mapOf(
@@ -1723,40 +1733,58 @@ class BlackoutChannelCoordinator(
         }
 
         val sent = if (resolvedReceiver != null) {
+            if (!hasActiveTransport(resolvedReceiver)) {
+                scheduleQueuedRetry()
+                return@withContext mapOf(
+                    "ok" to true,
+                    "method" to "sendMessage",
+                    "messageId" to messageId,
+                    "status" to MessageDeliveryStatus.QUEUED.name,
+                    "createdAt" to createdAt,
+                    "queuedForDelivery" to true,
+                    "error" to null
+                )
+            }
             val hasSession = ensureEncryptedSession(resolvedReceiver, sessionId)
             if (!hasSession) {
-                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+                scheduleQueuedRetry()
                 return@withContext mapOf(
-                    "ok" to false,
+                    "ok" to true,
                     "method" to "sendMessage",
                     "messageId" to messageId,
-                    "status" to MessageDeliveryStatus.FAILED.name,
+                    "status" to MessageDeliveryStatus.QUEUED.name,
                     "createdAt" to createdAt,
-                    "error" to "e2e_handshake_failed"
+                    "queuedForDelivery" to true,
+                    "error" to null
                 )
             }
-            val sessionKey = e2eSessionKeys[resolvedReceiver]
-            if (sessionKey == null) {
-                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+            val envelope = e2eSessionManager.encryptForPeer(resolvedReceiver, packet)
+            if (envelope == null) {
+                scheduleQueuedRetry()
                 return@withContext mapOf(
-                    "ok" to false,
+                    "ok" to true,
                     "method" to "sendMessage",
                     "messageId" to messageId,
-                    "status" to MessageDeliveryStatus.FAILED.name,
+                    "status" to MessageDeliveryStatus.QUEUED.name,
                     "createdAt" to createdAt,
-                    "error" to "e2e_session_missing"
+                    "queuedForDelivery" to true,
+                    "error" to null
                 )
             }
-            val encrypted = cryptoManager.encryptWithSessionKey(packet, sessionKey)
-            val envelope = encodeEncryptedPayload(encrypted.iv, encrypted.cipherText)
-            bleTransport.sendTo(resolvedReceiver, envelope)
+            val encryptedSent = sendWithRetry(resolvedReceiver, envelope)
+            if (encryptedSent) {
+                true
+            } else {
+                // Fallback path: deliver plaintext packet if E2E transport fails repeatedly.
+                sendWithRetry(resolvedReceiver, packet)
+            }
         } else {
             val connectedPeers = meshRepository.getCurrentPeers().filter {
                 it.status.name == "CONNECTED" || it.status.name == "SCANNING"
             }
             var any = false
             for (peer in connectedPeers) {
-                if (bleTransport.sendTo(peer.id, packet)) any = true
+                if (sendWithRetry(peer.id, packet)) any = true
             }
             any
         }
@@ -1891,7 +1919,7 @@ class BlackoutChannelCoordinator(
                     continue
                 }
 
-                val sent = bleTransport.sendTo(peer.id, packet)
+                val sent = sendWithRetry(peer.id, packet)
                 if (sent) {
                     sentCount++
                     deliveredCount++
@@ -1989,7 +2017,7 @@ class BlackoutChannelCoordinator(
                 continue
             }
 
-            val sent = bleTransport.sendTo(peer.id, packet)
+            val sent = sendWithRetry(peer.id, packet)
             if (sent) {
                 successfulSends++
                 dao.updateStatus(messageId, MessageDeliveryStatus.SENT.name)
@@ -2000,6 +2028,85 @@ class BlackoutChannelCoordinator(
 
         if (successfulSends > 0) {
             settingsStore.clearPendingQuickStatus()
+        }
+    }
+
+    private suspend fun flushQueuedChatMessagesIfPossible() {
+        ensureMeshRuntimeActive()
+        if (!bleScanner.isBluetoothEnabled()) {
+            return
+        }
+
+        val dao = database.messageDao()
+        val activePeers = meshRepository.getCurrentPeers().filter {
+            it.status.name == "CONNECTED" || it.status.name == "SCANNING"
+        }
+
+        for (peer in activePeers) {
+            val normalizedPeerId = normalizePeerId(peer.id) ?: continue
+            if (!hasActiveTransport(normalizedPeerId)) {
+                continue
+            }
+
+            val queued = dao.getQueuedOutgoingForPeer(
+                senderId = localNodeId,
+                receiverId = normalizedPeerId,
+            )
+            if (queued.isEmpty()) {
+                continue
+            }
+
+            val sessionId = chatSessionByPeerId[peer.id] ?: chatSessionByPeerId[normalizedPeerId]
+            val hasSession = ensureEncryptedSession(normalizedPeerId, sessionId)
+            if (!hasSession) {
+                continue
+            }
+
+            for (entity in queued) {
+                val meshMessage = MeshMessage(
+                    id = entity.id,
+                    senderId = entity.senderId,
+                    receiverId = normalizedPeerId,
+                    type = MessageType.TEXT,
+                    content = entity.content,
+                    createdAt = entity.createdAt
+                )
+
+                val packet = MeshProtocol.encode(meshMessage)
+                val envelope = e2eSessionManager.encryptForPeer(normalizedPeerId, packet) ?: continue
+                val encryptedSent = sendWithRetry(normalizedPeerId, envelope)
+                val sent = if (encryptedSent) {
+                    true
+                } else {
+                    // Fallback path: deliver plaintext packet if E2E transport fails repeatedly.
+                    sendWithRetry(normalizedPeerId, packet)
+                }
+                if (sent) {
+                    dao.updateStatus(entity.id, MessageDeliveryStatus.SENT.name)
+                }
+            }
+
+            // Flush queued SOS messages for this peer (sent as plaintext — high priority)
+            val queuedSos = dao.getQueuedSosForPeer(
+                senderId = localNodeId,
+                receiverId = normalizedPeerId,
+            )
+            for (entity in queuedSos) {
+                val meshMessage = MeshMessage(
+                    id = entity.id,
+                    senderId = entity.senderId,
+                    receiverId = normalizedPeerId,
+                    type = MessageType.SOS,
+                    content = entity.content,
+                    createdAt = entity.createdAt,
+                    ttlSeconds = 600
+                )
+                val packet = MeshProtocol.encode(meshMessage)
+                val sent = sendWithRetry(normalizedPeerId, packet)
+                if (sent) {
+                    dao.updateStatus(entity.id, MessageDeliveryStatus.SENT.name)
+                }
+            }
         }
     }
 
@@ -2109,20 +2216,20 @@ class BlackoutChannelCoordinator(
             val canSend = hasActiveTransport(peer.id)
 
             if (!canSend) {
-                failedCount++
-                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+                // No active transport — keep QUEUED so flush can retry when peer appears
                 recipientStatuses.add(
                     mapOf(
                         "recipientId" to peer.id,
                         "recipientName" to peer.name,
-                        "status" to "FAILED",
+                        "status" to "QUEUED",
                         "error" to "no_active_transport"
                     )
                 )
+                scheduleQueuedRetry()
                 continue
             }
 
-            val sent = bleTransport.sendTo(peer.id, packet)
+            val sent = sendWithRetry(peer.id, packet)
             if (sent) {
                 sentCount++
                 deliveredCount++
@@ -2136,16 +2243,16 @@ class BlackoutChannelCoordinator(
                     )
                 )
             } else {
-                failedCount++
-                dao.updateStatus(messageId, MessageDeliveryStatus.FAILED.name)
+                // Send failed — keep QUEUED for retry
                 recipientStatuses.add(
                     mapOf(
                         "recipientId" to peer.id,
                         "recipientName" to peer.name,
-                        "status" to "FAILED",
+                        "status" to "QUEUED",
                         "error" to "transport_send_failed"
                     )
                 )
+                scheduleQueuedRetry()
             }
         }
 
@@ -2159,6 +2266,8 @@ class BlackoutChannelCoordinator(
             )
         }
 
+        val queuedCount = recipientStatuses.count { it["status"] == "QUEUED" }
+
         meshRepository.saveSosAlertHistory(
             alertId = sosAlertId,
             createdAt = timestamp,
@@ -2168,18 +2277,23 @@ class BlackoutChannelCoordinator(
             sentCount = sentCount,
             deliveredCount = deliveredCount,
             failedCount = failedCount,
-            status = if (failedCount == 0) "DELIVERED" else "PARTIAL_FAILURE",
-            error = if (failedCount > 0) "partial_failure" else null,
+            status = when {
+                deliveredCount > 0 -> "DELIVERED"
+                queuedCount > 0 -> "QUEUED"
+                else -> "PARTIAL_FAILURE"
+            },
+            error = if (failedCount > 0 && queuedCount == 0) "partial_failure" else null,
             recipients = recipientsForHistory
         )
 
         return@withContext mapOf(
-            "ok" to (failedCount == 0),
+            "ok" to (sentCount > 0 || queuedCount > 0),
             "method" to "sendSos",
             "sosAlertId" to sosAlertId,
             "sentCount" to sentCount,
             "deliveredCount" to deliveredCount,
             "failedCount" to failedCount,
+            "queuedCount" to queuedCount,
             "location" to mapOf(
                 "latitude" to location.latitude,
                 "longitude" to location.longitude,
@@ -2200,6 +2314,52 @@ class BlackoutChannelCoordinator(
         if (sessionId.isNullOrBlank()) return null
         val meta = chatSessionMeta[sessionId] ?: return null
         return normalizePeerId(meta["peerId"]?.toString())
+    }
+
+    private fun ensureMeshRuntimeActive() {
+        if (!bleScanner.isBluetoothEnabled() || !bleScanner.hasPermissions()) {
+            return
+        }
+
+        bleTransport.startServer()
+        if (!meshRepository.scanInProgress.value) {
+            meshRepository.startScan()
+        }
+        bleTransport.startAdvertising()
+    }
+
+    private fun scheduleQueuedRetry() {
+        if (queuedRetryJob?.isActive == true) return
+        queuedRetryJob = scope.launch {
+            repeat(8) {
+                delay(1_500L)
+                withContext(Dispatchers.IO) {
+                    flushQueuedChatMessagesIfPossible()
+                }
+            }
+        }
+    }
+
+    private suspend fun sendWithRetry(
+        peerId: String,
+        payload: ByteArray,
+        attempts: Int = 3,
+        retryDelayMs: Long = 350L
+    ): Boolean {
+        val mutex = peerSendMutexes.getOrPut(peerId) { Mutex() }
+        return mutex.withLock {
+            var attempt = 0
+            while (attempt < attempts) {
+                if (bleTransport.sendTo(peerId, payload)) {
+                    return@withLock true
+                }
+                attempt++
+                if (attempt < attempts) {
+                    delay(retryDelayMs)
+                }
+            }
+            false
+        }
     }
 
     private fun hasActiveTransport(peerId: String?): Boolean {
@@ -2371,50 +2531,74 @@ class BlackoutChannelCoordinator(
         }
     }
 
-    private fun encodeHandshakeHello(): ByteArray {
-        val pub = Base64.encodeToString(cryptoManager.getIdentityPublicKeyEncoded(), Base64.NO_WRAP)
-        return "$E2E_PREFIX|HS1|$pub".encodeToByteArray()
-    }
-
-    private fun encodeHandshakeAck(): ByteArray {
-        val pub = Base64.encodeToString(cryptoManager.getIdentityPublicKeyEncoded(), Base64.NO_WRAP)
-        return "$E2E_PREFIX|HS2|$pub".encodeToByteArray()
-    }
-
-    private fun encodeEncryptedPayload(iv: ByteArray, cipherText: ByteArray): ByteArray {
-        val ivPart = Base64.encodeToString(iv, Base64.NO_WRAP)
-        val dataPart = Base64.encodeToString(cipherText, Base64.NO_WRAP)
-        return "$E2E_PREFIX|MSG|$ivPart|$dataPart".encodeToByteArray()
-    }
-
-    private fun decodeEnvelope(payload: ByteArray): E2eEnvelope? {
-        val text = runCatching { payload.decodeToString() }.getOrNull() ?: return null
-        if (!text.startsWith("$E2E_PREFIX|")) return null
-        val parts = text.split('|')
-        if (parts.size < 3) return null
-        return E2eEnvelope(
-            type = parts[1].uppercase(),
-            partA = parts[2],
-            partB = parts.getOrNull(3)
-        )
-    }
-
-    private fun setEncryptedSession(peerId: String, sessionKey: ByteArray) {
+    private suspend fun recoverPendingEncryptedMessagesForPeer(peerId: String) {
         val normalizedPeer = normalizePeerId(peerId) ?: return
-        e2eSessionKeys[normalizedPeer] = sessionKey
+        val dao = database.messageDao()
+        val conversationDao = database.conversationDao()
+        val pending = dao.getPendingEncryptedIncomingForPeer(
+            senderId = normalizedPeer,
+            receiverId = localNodeId,
+        )
+        if (pending.isEmpty()) return
+
+        for (entity in pending) {
+            val encodedPayload = entity.content.removePrefix(PENDING_E2E_PREFIX)
+            val payload = runCatching { Base64.decode(encodedPayload, Base64.DEFAULT) }.getOrNull() ?: continue
+            val e2eResult = e2eSessionManager.processIncomingPacket(normalizedPeer, payload)
+            val decryptedPayload = when (e2eResult) {
+                is E2ESessionManager.IncomingPacketResult.DecryptedMessage -> e2eResult.decryptedPayload
+                else -> continue
+            }
+            val message = runCatching { MeshProtocol.decode(decryptedPayload) }.getOrNull() ?: continue
+            val now = System.currentTimeMillis()
+
+            dao.deleteById(entity.id)
+            dao.upsert(
+                MessageEntity(
+                    id = message.id,
+                    senderId = normalizedPeer,
+                    receiverId = message.receiverId,
+                    type = message.type.name,
+                    content = message.content,
+                    createdAt = message.createdAt,
+                    status = MessageDeliveryStatus.DELIVERED.name,
+                    conversationId = normalizedPeer
+                )
+            )
+            conversationDao.upsert(
+                com.blackoutlink.data.storage.ConversationEntity(
+                    id = normalizedPeer,
+                    peerId = normalizedPeer,
+                    title = normalizedPeer,
+                    lastMessagePreview = message.content.take(120),
+                    updatedAt = now,
+                    unreadCount = 1
+                )
+            )
+            emitIncomingMessage(
+                id = message.id,
+                conversationId = normalizedPeer,
+                senderId = normalizedPeer,
+                peerId = normalizedPeer,
+                content = message.content,
+                type = message.type.name,
+                createdAt = message.createdAt,
+                deliveryStatus = MessageDeliveryStatus.DELIVERED.name
+            )
+        }
+    }
+
+    private fun pruneEncryptedSessions(activePeerIds: Set<String>) {
+        e2eSessionManager.pruneSessions(activePeerIds)
     }
 
     private fun hasEncryptedSession(peerId: String?): Boolean {
-        val normalizedPeer = normalizePeerId(peerId ?: return false) ?: return false
-        return e2eSessionKeys[normalizedPeer] != null
+        return e2eSessionManager.hasSession(peerId)
     }
 
     private suspend fun ensureEncryptedSession(peerId: String, sessionId: String?): Boolean {
         val normalizedPeer = normalizePeerId(peerId) ?: return false
-        if (e2eSessionKeys[normalizedPeer] != null) return true
-
-        val helloSent = bleTransport.sendTo(normalizedPeer, encodeHandshakeHello())
-        if (!helloSent) return false
+        if (e2eSessionManager.hasSession(normalizedPeer)) return true
 
         emitChatConnectionState(
             state = "connecting",
@@ -2424,25 +2608,28 @@ class BlackoutChannelCoordinator(
             peerId = normalizedPeer,
             encryptionEnabled = false
         )
-
-        var waited = 0L
-        while (waited < E2E_HANDSHAKE_WAIT_MS) {
-            if (e2eSessionKeys[normalizedPeer] != null) {
-                emitChatConnectionState(
-                    state = "connected",
-                    latencyMs = 0,
-                    sessionState = "active",
-                    sessionId = sessionId,
-                    peerId = normalizedPeer,
-                    encryptionEnabled = true
-                )
-                return true
-            }
-            delay(E2E_HANDSHAKE_POLL_MS)
-            waited += E2E_HANDSHAKE_POLL_MS
+        val hasSession = e2eSessionManager.ensureSession(
+            peerId = normalizedPeer,
+            onSendHello = { resolvedPeer, payload ->
+                scope.launch { sendWithRetry(resolvedPeer, payload) }
+            },
+            config = E2ESessionManager.HandshakeConfig(
+                waitMs = E2E_HANDSHAKE_WAIT_MS,
+                pollMs = E2E_HANDSHAKE_POLL_MS,
+                resendMs = E2E_HANDSHAKE_RESEND_MS
+            )
+        )
+        if (hasSession) {
+            emitChatConnectionState(
+                state = "connected",
+                latencyMs = 0,
+                sessionState = "active",
+                sessionId = sessionId,
+                peerId = normalizedPeer,
+                encryptionEnabled = true
+            )
         }
-
-        return false
+        return hasSession
     }
 
     private fun subscribeToIncomingTransport() {
@@ -2450,48 +2637,57 @@ class BlackoutChannelCoordinator(
             bleTransport.incomingBytes.collect { packet ->
                 try {
                     val sourcePeerId = normalizePeerId(packet.sourceAddress) ?: packet.sourceAddress
-                    val envelope = decodeEnvelope(packet.payload)
-
-                    if (envelope != null) {
-                        when (envelope.type) {
-                            "HS1" -> {
-                                val remotePub = Base64.decode(envelope.partA, Base64.DEFAULT)
-                                val sessionKey = cryptoManager.deriveSessionKey(remotePub)
-                                setEncryptedSession(sourcePeerId, sessionKey)
-                                bleTransport.sendTo(sourcePeerId, encodeHandshakeAck())
-                                emitChatConnectionState(
-                                    state = "connected",
-                                    latencyMs = 0,
-                                    sessionState = "active",
-                                    peerId = sourcePeerId,
-                                    encryptionEnabled = true
-                                )
-                                return@collect
+                    when (val e2eResult = e2eSessionManager.processIncomingPacket(sourcePeerId, packet.payload)) {
+                        is E2ESessionManager.IncomingPacketResult.HandshakeHelloReceived -> {
+                            sendWithRetry(e2eResult.peerId, e2eResult.ackPayload)
+                            scope.launch {
+                                recoverPendingEncryptedMessagesForPeer(e2eResult.peerId)
+                                flushQueuedChatMessagesIfPossible()
                             }
+                            emitChatConnectionState(
+                                state = "connected",
+                                latencyMs = 0,
+                                sessionState = "active",
+                                peerId = e2eResult.peerId,
+                                encryptionEnabled = true
+                            )
+                            return@collect
+                        }
 
-                            "HS2" -> {
-                                val remotePub = Base64.decode(envelope.partA, Base64.DEFAULT)
-                                val sessionKey = cryptoManager.deriveSessionKey(remotePub)
-                                setEncryptedSession(sourcePeerId, sessionKey)
-                                emitChatConnectionState(
-                                    state = "connected",
-                                    latencyMs = 0,
-                                    sessionState = "active",
-                                    peerId = sourcePeerId,
-                                    encryptionEnabled = true
-                                )
-                                return@collect
+                        is E2ESessionManager.IncomingPacketResult.HandshakeAckReceived -> {
+                            scope.launch {
+                                recoverPendingEncryptedMessagesForPeer(e2eResult.peerId)
+                                flushQueuedChatMessagesIfPossible()
                             }
+                            emitChatConnectionState(
+                                state = "connected",
+                                latencyMs = 0,
+                                sessionState = "active",
+                                peerId = e2eResult.peerId,
+                                encryptionEnabled = true
+                            )
+                            return@collect
+                        }
 
-                            "MSG" -> {
-                                val iv = Base64.decode(envelope.partA, Base64.DEFAULT)
-                                val cipher = Base64.decode(envelope.partB ?: "", Base64.DEFAULT)
-                                val sessionKey = e2eSessionKeys[sourcePeerId] ?: return@collect
-                                val decryptedPacket = cryptoManager.decryptWithSessionKey(
-                                    payload = com.blackoutlink.data.security.EncryptedPayload(iv = iv, cipherText = cipher),
-                                    sessionKey = sessionKey
-                                )
-                                val message = MeshProtocol.decode(decryptedPacket)
+                        is E2ESessionManager.IncomingPacketResult.HandshakeRecoveryRequired -> {
+                            sendWithRetry(e2eResult.peerId, e2eResult.helloPayload)
+                            emitChatConnectionState(
+                                state = "connecting",
+                                latencyMs = 0,
+                                sessionState = "handshake_recovery",
+                                peerId = e2eResult.peerId,
+                                encryptionEnabled = true
+                            )
+                            return@collect
+                        }
+
+                        is E2ESessionManager.IncomingPacketResult.DecryptFailed -> {
+                            Log.w("BLC", "decrypt failed for ${e2eResult.peerId}: ${e2eResult.reason}")
+                            return@collect
+                        }
+
+                        is E2ESessionManager.IncomingPacketResult.DecryptedMessage -> {
+                                val message = MeshProtocol.decode(e2eResult.decryptedPayload)
                                 val now = System.currentTimeMillis()
                                 val peerId = normalizePeerId(packet.sourceAddress) ?: message.senderId
                                 val conversationId = peerId
@@ -2537,8 +2733,9 @@ class BlackoutChannelCoordinator(
                                     encryptionEnabled = true
                                 )
                                 return@collect
-                            }
                         }
+
+                        E2ESessionManager.IncomingPacketResult.NotE2E -> Unit
                     }
 
                     val message = MeshProtocol.decode(packet.payload)

@@ -20,7 +20,6 @@ class _PowerPageState extends State<PowerPage> with WidgetsBindingObserver {
   static const Color _panelSoft = Color(0xFF2A2D33);
   static const Color _amber = Color(0xFFF7B21A);
   static const Color _muted = Color(0xFF767B86);
-  static const Color _red = Color(0xFFB50014);
 
   @override
   void initState() {
@@ -147,76 +146,6 @@ class _PowerPageState extends State<PowerPage> with WidgetsBindingObserver {
                               ),
                             ),
                           ],
-                          const SizedBox(height: 20),
-                          Listener(
-                            onPointerDown: (_) => _controller.startSosHold(),
-                            onPointerUp: (_) => _controller.endSosHold(),
-                            onPointerCancel: (_) => _controller.endSosHold(),
-                            child: SizedBox(
-                              width: double.infinity,
-                              height: 96,
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(
-                                        elevation: 0,
-                                        backgroundColor: _red,
-                                        foregroundColor: Colors.white,
-                                        shape: const RoundedRectangleBorder(),
-                                      ),
-                                      onPressed: () {},
-                                      icon: const Icon(Icons.emergency_outlined, size: 28),
-                                      label: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          state.sendingSos
-                                              ? 'SENDING EMERGENCY\nSOS'
-                                              : 'ACTIVATE EMERGENCY\nSOS',
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.w900,
-                                            height: 1.1,
-                                            letterSpacing: 0.8,
-                                          ),
-                                          maxLines: 2,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    child: Container(
-                                      height: 7,
-                                      color: const Color(0x33000000),
-                                      alignment: Alignment.centerLeft,
-                                      child: FractionallySizedBox(
-                                        widthFactor: state.sosHoldProgress.clamp(0.0, 1.0),
-                                        child: Container(color: Colors.white),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Center(
-                            child: Text(
-                              state.sendingSos
-                                  ? 'BROADCASTING LOCATION...'
-                                  : 'HOLD 3 SECONDS TO BROADCAST LOCATION',
-                              style: const TextStyle(
-                                color: _muted,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.4,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                     ),

@@ -93,9 +93,11 @@ class _ChatPageState extends State<ChatPage> {
 						// Group only actual chat messages; connection status has its own card.
 						// Quick status messages (STATUS:...) are excluded from the conversation list
 						// but still used by _latestQuickStatusForCurrentPeer for the status card.
+						// Pending encrypted placeholders are hidden until the native layer recovers them.
 						final Map<String, List<ChatMessageDto>> byPeer = {};
 						for (final ChatMessageDto msg in viewState.messages) {
 							if (msg.content.startsWith('STATUS:')) continue;
+							if (msg.content.startsWith('PENDING_E2E:')) continue;
 							final String? key = _peerKeyForMessage(msg);
 							if (key == null) continue;
 							byPeer.putIfAbsent(key, () => []).add(msg);
@@ -636,6 +638,7 @@ class _ChatPageState extends State<ChatPage> {
 
 		for (int i = state.messages.length - 1; i >= 0; i--) {
 			final ChatMessageDto msg = state.messages[i];
+			if (msg.outgoing) continue;
 			final QuickStatusPayload? status = QuickStatusPayload.fromMessageContent(msg.content);
 			if (status == null) continue;
 			if (normalizedPeer == null) {
@@ -761,6 +764,7 @@ class _ChatPageState extends State<ChatPage> {
 		final List<ChatMessageDto> thread = <ChatMessageDto>[];
 		for (final ChatMessageDto msg in messages) {
 			if (msg.content.startsWith('STATUS:')) continue;
+			if (msg.content.startsWith('PENDING_E2E:')) continue;
 			final String? messagePeer = _peerKeyForMessage(msg);
 			if (messagePeer != null && _normalizePeerKey(messagePeer) == normalizedActivePeer) {
 				thread.add(msg);
@@ -967,6 +971,9 @@ class _ChatPageState extends State<ChatPage> {
 
 	String? _messagePreview(ChatMessageDto? msg) {
 		if (msg == null) return null;
+		if (msg.content.startsWith('PENDING_E2E:')) {
+			return 'Encrypted message pending sync';
+		}
 		final QuickStatusPayload? status = QuickStatusPayload.fromMessageContent(msg.content);
 		if (status == null) {
 			return msg.content;
@@ -978,6 +985,17 @@ class _ChatPageState extends State<ChatPage> {
 	String _displayNameForPeer(String peerId, ChatState state) {
 		if (peerId == 'LOCAL_USER') {
 			return AppSettingsService.current.value.displayName;
+		}
+		final String normalizedPeerId = _normalizePeerKey(peerId);
+		final String? knownPeerName = _metadataForPeer(normalizedPeerId)?['name']?.toString().trim();
+		if (knownPeerName != null && knownPeerName.isNotEmpty) {
+			return knownPeerName;
+		}
+		if (state.session.peerId != null && normalizedPeerId == _normalizePeerKey(state.session.peerId!)) {
+			final String? sessionPeerName = state.session.peerName?.trim();
+			if (sessionPeerName != null && sessionPeerName.isNotEmpty) {
+				return sessionPeerName;
+			}
 		}
 		if (_isMacLikePeerId(peerId)) {
 			final String nodeLabel = _compactNodeLabel(peerId);
@@ -1579,11 +1597,13 @@ class _ChatPageState extends State<ChatPage> {
 			if (id.isEmpty) continue;
 			final Map<String, dynamic> existing = _peerMetadataById[id] ?? const <String, dynamic>{};
 			final Map<String, dynamic> next = <String, dynamic>{
+				'name': peer['name']?.toString(),
 				'statusPreset': peer['statusPreset']?.toString(),
 				'batterySaverEnabled': peer['batterySaverEnabled'] as bool?,
 				'meshRole': peer['meshRole']?.toString(),
 			};
-			if (existing['statusPreset'] != next['statusPreset'] ||
+			if (existing['name'] != next['name'] ||
+				existing['statusPreset'] != next['statusPreset'] ||
 				existing['batterySaverEnabled'] != next['batterySaverEnabled'] ||
 				existing['meshRole'] != next['meshRole']) {
 				_peerMetadataById[id] = next;

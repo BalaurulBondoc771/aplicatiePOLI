@@ -34,12 +34,14 @@ class AppSettingsData {
   const AppSettingsData({
     required this.displayName,
     required this.statusPreset,
+    required this.quickStatusPreset,
     required this.encryptionKey,
     required this.backgroundDiscoverabilityEnabled,
   });
 
   final String displayName;
   final String statusPreset;
+  final String quickStatusPreset;
   final String encryptionKey;
   final bool backgroundDiscoverabilityEnabled;
 
@@ -47,6 +49,7 @@ class AppSettingsData {
     return const AppSettingsData(
       displayName: 'OPERATOR_X',
       statusPreset: 'SILENT / INCOGNITO',
+      quickStatusPreset: 'NONE',
       encryptionKey: 'BKOT-7F3A-91CD-E256-ROT',
       backgroundDiscoverabilityEnabled: true,
     );
@@ -61,6 +64,9 @@ class AppSettingsData {
       statusPreset: (json['statusPreset'] as String?)?.trim().isNotEmpty == true
           ? (json['statusPreset'] as String).trim()
           : defaults.statusPreset,
+        quickStatusPreset: (json['quickStatusPreset'] as String?)?.trim().isNotEmpty == true
+          ? (json['quickStatusPreset'] as String).trim().toUpperCase()
+          : defaults.quickStatusPreset,
       encryptionKey: (json['encryptionKey'] as String?)?.trim().isNotEmpty == true
           ? (json['encryptionKey'] as String).trim()
           : defaults.encryptionKey,
@@ -74,6 +80,7 @@ class AppSettingsData {
     return <String, dynamic>{
       'displayName': displayName,
       'statusPreset': statusPreset,
+      'quickStatusPreset': quickStatusPreset,
       'encryptionKey': encryptionKey,
       'backgroundDiscoverabilityEnabled': backgroundDiscoverabilityEnabled,
     };
@@ -82,12 +89,14 @@ class AppSettingsData {
   AppSettingsData copyWith({
     String? displayName,
     String? statusPreset,
+    String? quickStatusPreset,
     String? encryptionKey,
     bool? backgroundDiscoverabilityEnabled,
   }) {
     return AppSettingsData(
       displayName: displayName ?? this.displayName,
       statusPreset: statusPreset ?? this.statusPreset,
+      quickStatusPreset: quickStatusPreset ?? this.quickStatusPreset,
       encryptionKey: encryptionKey ?? this.encryptionKey,
       backgroundDiscoverabilityEnabled:
           backgroundDiscoverabilityEnabled ?? this.backgroundDiscoverabilityEnabled,
