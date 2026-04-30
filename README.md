@@ -1,3 +1,7 @@
+apk:[https://drive.google.com/file/d/1JjYzukdJlZ9TuFJSxFNr2_enJXy6-Bvw/view?usp=drive_link](https://drive.google.com/file/d/1JjYzukdJlZ9TuFJSxFNr2_enJXy6-Bvw/view?usp=sharing)
+business plan:[Business-plan_HE-6.0.pptx](https://github.com/user-attachments/files/27257065/Business-plan_HE-6.0.pptx)
+demo video: https://youtu.be/8mHhE_nQY0Q
+pitch video : https://youtu.be/N7UOGwxDlQ4
 # Blackout Link
 
 **Blackout Link** is an offline emergency communication app built with Flutter and Android native BLE technology.  
