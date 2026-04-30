@@ -234,9 +234,21 @@ class MeshBeaconService : Service() {
                         }
 
                         BackgroundPacketKind.PLAINTEXT_TEXT,
-                        BackgroundPacketKind.E2E_ENCRYPTED,
+                        BackgroundPacketKind.E2E_ENCRYPTED -> {
+                            persistIncomingMessage(
+                                peerId = peerId,
+                                messageId = message.id,
+                                receiverId = message.receiverId,
+                                type = message.type.name,
+                                content = message.content,
+                                createdAt = message.createdAt,
+                                preview = message.content
+                            )
+                            showMessageNotification(message.content)
+                        }
+
                         BackgroundPacketKind.UNKNOWN -> {
-                            // MVP-safe behavior: only persist SOS, quick status, and encrypted placeholders.
+                            // Unknown packet kinds are ignored until the protocol has an explicit handler.
                         }
                     }
                 } catch (_: Throwable) {

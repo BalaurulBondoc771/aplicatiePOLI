@@ -64,6 +64,8 @@ class BleTransport(private val context: Context) {
         /** Writable characteristic used to deliver encoded mesh messages. */
         val MESSAGE_CHAR_UUID: UUID = UUID.fromString("0000aa02-0000-1000-8000-00805f9b34fb")
 
+        const val MESH_ADVERTISEMENT_SIGNATURE = "BLC1"
+
         private const val SEND_TIMEOUT_MS = 12_000L
         private const val TARGET_MTU = 512
     }
@@ -169,9 +171,13 @@ class BleTransport(private val context: Context) {
             .addServiceUuid(ParcelUuid(MESH_SERVICE_UUID))
             .addServiceData(
                 ParcelUuid(MESH_SERVICE_UUID),
-                "$localStatusPresetCode|${if (localBatterySaverEnabled) 1 else 0}|$localMeshRoleCode"
+                "$MESH_ADVERTISEMENT_SIGNATURE|$localStatusPresetCode|${if (localBatterySaverEnabled) 1 else 0}|$localMeshRoleCode"
                     .toByteArray(Charsets.UTF_8)
             )
+            .setIncludeDeviceName(false)
+            .build()
+
+        val scanResponse = AdvertiseData.Builder()
             .setIncludeDeviceName(true)
             .build()
 
@@ -183,7 +189,7 @@ class BleTransport(private val context: Context) {
         }
         advertiseCallback = cb
         try {
-            advertiser.startAdvertising(settings, data, cb)
+            advertiser.startAdvertising(settings, data, scanResponse, cb)
         } catch (_: SecurityException) {
             advertiseCallback = null
         }

@@ -8,7 +8,7 @@ Future<void> showOfflineMapDialog({
   double? latitude,
   double? longitude,
   bool showMyLocation = true,
-  String title = 'HARTA',
+  String title = 'MAP',
 }) {
   return showDialog<void>(
     context: context,

@@ -186,15 +186,19 @@ class BleScanner(
                 ?.getServiceData(ParcelUuid(BleTransport.MESH_SERVICE_UUID))
                 ?.toString(Charsets.UTF_8)
                 ?.trim()
-            val metadataParts = metadataRaw?.split('|') ?: emptyList()
-            val presetCode = metadataParts.getOrNull(0)
-            val batterySaverRaw = metadataParts.getOrNull(1)
-            val roleCode = metadataParts.getOrNull(2)
-            val advertisedName = sanitizePeerName(device.name)
+            val metadataParts = metadataRaw
+                ?.split('|')
+                ?.takeIf { parts -> parts.firstOrNull() == BleTransport.MESH_ADVERTISEMENT_SIGNATURE }
+                ?: return
+            val presetCode = metadataParts.getOrNull(1)
+            val batterySaverRaw = metadataParts.getOrNull(2)
+            val roleCode = metadataParts.getOrNull(3)
+            val advertisedName = sanitizePeerName(result.scanRecord?.deviceName)
+                ?: sanitizePeerName(device.name)
             val existingName = sanitizePeerName(existing?.name)
             val resolvedName = advertisedName
                 ?: existingName
-                ?: normalizedAddress
+                ?: "UNKNOWN_NODE"
             val peer = PeerDevice(
                 id = normalizedAddress,
                 name = resolvedName,
@@ -252,13 +256,17 @@ class BleScanner(
     private fun sanitizePeerName(raw: String?): String? {
         val candidate = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         val upper = candidate.uppercase()
-        if (upper == "OPERATOR_X" || upper == "UNKNOWN_NODE") {
+        if (upper == "UNKNOWN_NODE") {
             return null
         }
-        // Ignore accidental self-name echoes from adapter-level naming.
-        if (localDisplayName?.trim()?.equals(candidate, ignoreCase = true) == true) {
+        if (isMacLikeAddress(candidate)) {
             return null
         }
         return candidate
+    }
+
+    private fun isMacLikeAddress(value: String): Boolean {
+        return Regex("^[0-9A-F]{2}(:[0-9A-F]{2}){5}$", RegexOption.IGNORE_CASE)
+            .matches(value.trim())
     }
 }

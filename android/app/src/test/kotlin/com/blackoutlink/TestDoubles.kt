@@ -39,6 +39,8 @@ class FakeMeshScanner : MeshScanner {
         lastRefreshIntervalMs = refreshIntervalMs
     }
 
+    override fun setLocalDisplayName(displayName: String?) = Unit
+
     fun emitPeers(peers: List<PeerDevice>) {
         peerFlow.value = peers
     }

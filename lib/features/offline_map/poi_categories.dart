@@ -54,7 +54,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'food',
-    label: 'Mâncare',
+    label: 'Food',
     color: Color(0xFFF97316),
     iconData: Icons.fastfood,
     tagSnippets: [
@@ -88,7 +88,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'shopping',
-    label: 'Cumpărături',
+    label: 'Stores',
     color: Color(0xFFA855F7),
     iconData: Icons.shopping_cart,
     tagSnippets: [
@@ -108,7 +108,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'tourism',
-    label: 'Turism',
+    label: 'Tourism',
     color: Color(0xFF10B981),
     iconData: Icons.photo_camera,
     tagSnippets: [
@@ -130,7 +130,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'education',
-    label: 'Educație',
+    label: 'Education',
     color: Color(0xFFF59E0B),
     iconData: Icons.school,
     tagSnippets: [
@@ -144,7 +144,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'finance',
-    label: 'Finanțe',
+    label: 'Finance',
     color: Color(0xFF6366F1),
     iconData: Icons.account_balance,
     tagSnippets: [
@@ -155,7 +155,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'emergency',
-    label: 'Urgențe',
+    label: 'Emergency',
     color: Color(0xFFDC2626),
     iconData: Icons.security,
     tagSnippets: [
@@ -168,7 +168,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'religious',
-    label: 'Lăcașuri',
+    label: 'Religious',
     color: Color(0xFF92400E),
     iconData: Icons.place,
     tagSnippets: [
@@ -182,7 +182,7 @@ const List<PoiCategory> kPoiCategories = [
   ),
   PoiCategory(
     id: 'nature',
-    label: 'Natură',
+    label: 'Nature',
     color: Color(0xFF16A34A),
     iconData: Icons.terrain,
     tagSnippets: [

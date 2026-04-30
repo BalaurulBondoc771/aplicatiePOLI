@@ -2,6 +2,7 @@ class PermissionsState {
   const PermissionsState({
     required this.bluetoothScan,
     required this.bluetoothConnect,
+    required this.bluetoothAdvertise,
     required this.fineLocation,
     required this.microphone,
     required this.bluetoothEnabled,
@@ -12,6 +13,7 @@ class PermissionsState {
 
   final String bluetoothScan;
   final String bluetoothConnect;
+  final String bluetoothAdvertise;
   final String fineLocation;
   final String microphone;
   final bool bluetoothEnabled;
@@ -23,6 +25,7 @@ class PermissionsState {
     return const PermissionsState(
       bluetoothScan: 'denied',
       bluetoothConnect: 'denied',
+      bluetoothAdvertise: 'denied',
       fineLocation: 'denied',
       microphone: 'not_required',
       bluetoothEnabled: false,
@@ -34,10 +37,12 @@ class PermissionsState {
 
   bool get bluetoothScanGranted => bluetoothScan == 'granted' || bluetoothScan == 'not_required';
   bool get bluetoothConnectGranted => bluetoothConnect == 'granted' || bluetoothConnect == 'not_required';
+  bool get bluetoothAdvertiseGranted => bluetoothAdvertise == 'granted' || bluetoothAdvertise == 'not_required';
   bool get fineLocationGranted => fineLocation == 'granted';
   bool get microphoneGranted => microphone == 'granted' || microphone == 'not_required';
 
-  bool get meshPermissionsGranted => bluetoothScanGranted && bluetoothConnectGranted && fineLocationGranted;
+  bool get meshPermissionsGranted =>
+      bluetoothScanGranted && bluetoothConnectGranted && bluetoothAdvertiseGranted && fineLocationGranted;
   bool get canUseMeshActions => meshPermissionsGranted && bluetoothEnabled;
   bool get canUseLocationActions => fineLocationGranted && locationServiceEnabled;
   bool get canUseSosActions => canUseMeshActions && canUseLocationActions;
@@ -45,6 +50,7 @@ class PermissionsState {
   bool get permanentlyDeniedAny =>
       bluetoothScan == 'permanently_denied' ||
       bluetoothConnect == 'permanently_denied' ||
+      bluetoothAdvertise == 'permanently_denied' ||
       fineLocation == 'permanently_denied' ||
       microphone == 'permanently_denied';
 
@@ -70,6 +76,7 @@ class PermissionsState {
   PermissionsState copyWith({
     String? bluetoothScan,
     String? bluetoothConnect,
+    String? bluetoothAdvertise,
     String? fineLocation,
     String? microphone,
     bool? bluetoothEnabled,
@@ -81,6 +88,7 @@ class PermissionsState {
     return PermissionsState(
       bluetoothScan: bluetoothScan ?? this.bluetoothScan,
       bluetoothConnect: bluetoothConnect ?? this.bluetoothConnect,
+      bluetoothAdvertise: bluetoothAdvertise ?? this.bluetoothAdvertise,
       fineLocation: fineLocation ?? this.fineLocation,
       microphone: microphone ?? this.microphone,
       bluetoothEnabled: bluetoothEnabled ?? this.bluetoothEnabled,

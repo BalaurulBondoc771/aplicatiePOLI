@@ -68,6 +68,8 @@ class PermissionsController {
       bluetoothScan: permissions['android.permission.BLUETOOTH_SCAN'] ?? _state.bluetoothScan,
       bluetoothConnect:
           permissions['android.permission.BLUETOOTH_CONNECT'] ?? _state.bluetoothConnect,
+      bluetoothAdvertise:
+          permissions['android.permission.BLUETOOTH_ADVERTISE'] ?? 'not_required',
       fineLocation:
           permissions['android.permission.ACCESS_FINE_LOCATION'] ?? _state.fineLocation,
       microphone:
@@ -88,6 +90,7 @@ class PermissionsController {
     final bool missingCore =
         _state.bluetoothScan == 'denied' ||
         _state.bluetoothConnect == 'denied' ||
+        _state.bluetoothAdvertise == 'denied' ||
         _state.fineLocation == 'denied';
 
     if (missingCore) {

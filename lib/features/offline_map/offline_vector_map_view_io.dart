@@ -214,7 +214,7 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
                   borderRadius: BorderRadius.circular(3),
                 ),
                 child: Text(
-                  'TOATE',
+                  'ALL',
                   style: TextStyle(
                     color: allEnabled
                         ? const Color(0xFFF7B21A)
@@ -470,7 +470,7 @@ class _OfflineVectorMapViewState extends State<OfflineVectorMapView> {
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                           color: const Color(0xCC000000),
                           child: const Text(
-                            'APASA PENTRU HARTA FULLSCREEN',
+                            'TAP FOR FULLSCREEN',
                             style: TextStyle(
                               color: Color(0xFFF7B21A),
                               fontSize: 10,

@@ -68,6 +68,7 @@ class PermissionManager(
             // Android < 31 does not require runtime BT_SCAN/BT_CONNECT.
             list.add(Manifest.permission.BLUETOOTH_SCAN)
             list.add(Manifest.permission.BLUETOOTH_CONNECT)
+            list.add(Manifest.permission.BLUETOOTH_ADVERTISE)
         }
         list.add(Manifest.permission.ACCESS_FINE_LOCATION)
         if (includeMicrophone) {

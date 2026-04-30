@@ -11,6 +11,7 @@ class PermissionsChannelService {
       'permissions': <String, String>{
         'android.permission.BLUETOOTH_SCAN': 'granted',
         'android.permission.BLUETOOTH_CONNECT': 'granted',
+        'android.permission.BLUETOOTH_ADVERTISE': 'granted',
         'android.permission.ACCESS_FINE_LOCATION': 'granted',
         'android.permission.RECORD_AUDIO': includeMicrophone ? 'granted' : 'not_required',
       },

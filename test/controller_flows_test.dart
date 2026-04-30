@@ -255,6 +255,7 @@ void main() {
     const state = PermissionsState(
       bluetoothScan: 'denied',
       bluetoothConnect: 'granted',
+      bluetoothAdvertise: 'granted',
       fineLocation: 'granted',
       microphone: 'not_required',
       bluetoothEnabled: true,

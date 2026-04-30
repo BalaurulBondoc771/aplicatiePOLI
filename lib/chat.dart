@@ -747,8 +747,9 @@ class _ChatPageState extends State<ChatPage> {
 	}
 
 	String _displayTitleForActivePeer(String? peerId, String? peerName, ChatState state) {
-		if (peerName != null && peerName.trim().isNotEmpty) {
-			return peerName;
+		final String? cleanPeerName = _validDeviceName(peerName);
+		if (cleanPeerName != null) {
+			return cleanPeerName;
 		}
 		if (peerId == null || peerId.trim().isEmpty) {
 			return 'UNKNOWN DEVICE';
@@ -987,13 +988,15 @@ class _ChatPageState extends State<ChatPage> {
 			return AppSettingsService.current.value.displayName;
 		}
 		final String normalizedPeerId = _normalizePeerKey(peerId);
-		final String? knownPeerName = _metadataForPeer(normalizedPeerId)?['name']?.toString().trim();
-		if (knownPeerName != null && knownPeerName.isNotEmpty) {
+		final String? knownPeerName = _validDeviceName(
+			_metadataForPeer(normalizedPeerId)?['name']?.toString(),
+		);
+		if (knownPeerName != null) {
 			return knownPeerName;
 		}
 		if (state.session.peerId != null && normalizedPeerId == _normalizePeerKey(state.session.peerId!)) {
-			final String? sessionPeerName = state.session.peerName?.trim();
-			if (sessionPeerName != null && sessionPeerName.isNotEmpty) {
+			final String? sessionPeerName = _validDeviceName(state.session.peerName);
+			if (sessionPeerName != null) {
 				return sessionPeerName;
 			}
 		}
@@ -1009,12 +1012,11 @@ class _ChatPageState extends State<ChatPage> {
 			return nodeLabel;
 		}
 		if (state.session.peerId != null && peerId == state.session.peerId) {
-			return state.session.peerName?.trim().isNotEmpty == true
-				? state.session.peerName!
-				: (state.session.peerId ?? peerId);
+			return _validDeviceName(state.session.peerName) ?? (state.session.peerId ?? peerId);
 		}
-		if (state.session.peerName != null && peerId == state.session.peerName) {
-			return state.session.peerName!;
+		final String? sessionPeerName = _validDeviceName(state.session.peerName);
+		if (sessionPeerName != null && peerId == state.session.peerName) {
+			return sessionPeerName;
 		}
 		if (peerId.trim().isEmpty || peerId == 'UNKNOWN_DEVICE') {
 			return 'UNKNOWN DEVICE';
@@ -1044,6 +1046,15 @@ class _ChatPageState extends State<ChatPage> {
 	bool _isMacLikePeerId(String value) {
 		return RegExp(r'^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$', caseSensitive: false)
 			.hasMatch(value.trim());
+	}
+
+	String? _validDeviceName(String? rawName) {
+		final String? name = rawName?.trim();
+		if (name == null || name.isEmpty) return null;
+		final String upper = name.toUpperCase();
+		if (upper == 'UNKNOWN_NODE' || upper == 'UNKNOWN DEVICE') return null;
+		if (_isMacLikePeerId(name)) return null;
+		return name;
 	}
 
 	String _compactNodeLabel(String macLikeId) {
@@ -1374,8 +1385,8 @@ class _ChatPageState extends State<ChatPage> {
 												separatorBuilder: (context, index) => const SizedBox(height: 10),
 												itemBuilder: (context, index) {
 													final peer = peers[index];
-													final name = '${peer['name'] ?? peer['id'] ?? 'UNKNOWN_NODE'}';
 													final id = '${peer['id'] ?? ''}';
+													final name = _displayNameForDiscoveredPeer(peer);
 													final int rssi = (peer['rssi'] as num?)?.toInt() ?? -110;
 													final String signal = rssi >= -65
 														? 'STRONG SIGNAL'
@@ -1549,15 +1560,16 @@ class _ChatPageState extends State<ChatPage> {
 			return;
 		}
 
+		final String? selectedPeerName = _validDeviceName(selectedPeer['name']?.toString());
 		await _controller.openOfflineSession(
 			peerId: peerId,
-			peerName: selectedPeer['name']?.toString(),
+			peerName: selectedPeerName,
 		);
 
 		if (!mounted) return;
 		setState(() {
 			_activePeerId = peerId;
-			_activePeerName = selectedPeer['name']?.toString() ?? peerId;
+			_activePeerName = selectedPeerName;
 		});
 	}
 
@@ -1597,7 +1609,7 @@ class _ChatPageState extends State<ChatPage> {
 			if (id.isEmpty) continue;
 			final Map<String, dynamic> existing = _peerMetadataById[id] ?? const <String, dynamic>{};
 			final Map<String, dynamic> next = <String, dynamic>{
-				'name': peer['name']?.toString(),
+				'name': _validDeviceName(peer['name']?.toString()),
 				'statusPreset': peer['statusPreset']?.toString(),
 				'batterySaverEnabled': peer['batterySaverEnabled'] as bool?,
 				'meshRole': peer['meshRole']?.toString(),
@@ -1619,6 +1631,17 @@ class _ChatPageState extends State<ChatPage> {
 		final String key = _normalizePeerKey(peerId);
 		if (key.isEmpty) return null;
 		return _peerMetadataById[key];
+	}
+
+	String _displayNameForDiscoveredPeer(Map<String, dynamic> peer) {
+		final String? name = _validDeviceName(peer['name']?.toString());
+		if (name != null) return name;
+
+		final String id = '${peer['id'] ?? ''}'.trim();
+		if (_isMacLikePeerId(id)) {
+			return _compactNodeLabel(id);
+		}
+		return id.isNotEmpty ? id : 'UNKNOWN DEVICE';
 	}
 
 	String _peerPresetBadge(String? preset) {
